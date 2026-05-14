@@ -1,0 +1,802 @@
+{
+  "name": "Support Ticket Classifier",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Support Ticket Classifier\n\nThis workflow:\n1. Receives support tickets via Webhook\n2. Extracts and normalizes the message\n3. Uses OpenAI to classify category, priority, and sentiment\n4. Routes by priority: Critical/High → Slack, Medium/Low → Google Sheets\n5. Creates a Notion page for all tickets\n6. Includes retry logic on OpenAI (3 retries)\n7. Error handling with Slack alert\n\n**Categories:**\n`billing` | `technical_issue` | `account_access` | `product_question` | `cancellation` | `feature_request` | `other`\n\n**Priority:** `low` | `medium` | `high` | `critical`\n\n**Sentiment:** `positive` | `neutral` | `negative`\n\n**Setup required:**\n- OpenAI API credential\n- Slack credential\n- Google Sheets credential\n- Notion credential + Database ID\n\n**Payload expected:**\n```json\n{\n  \"ticket_id\": \"TKT-1234\",\n  \"customer_name\": \"John Smith\",\n  \"customer_email\": \"john@example.com\",\n  \"subject\": \"Can't login to my account\",\n  \"message\": \"I've been locked out since yesterday...\",\n  \"plan\": \"Pro\",\n  \"channel\": \"email\"\n}\n```",
+        "height": 560,
+        "width": 440,
+        "color": 5
+      },
+      "id": "d3c4e5f6-0003-4000-8000-000000000001",
+      "name": "Sticky Note - Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, -460]
+    },
+    {
+      "parameters": {
+        "content": "## Switch Routing Logic\n\nThe Switch node routes by priority:\n\n- **critical** → Immediate Slack DM to on-call + channel alert\n- **high** → Slack `#support-high` channel\n- **medium** → Google Sheets (medium queue)\n- **low** → Google Sheets (low queue)\n\nAll tickets also get a Notion page created for tracking.",
+        "height": 280,
+        "width": 360,
+        "color": 4
+      },
+      "id": "d3c4e5f6-0003-4000-8000-000000000002",
+      "name": "Sticky Note - Routing",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1100, -460]
+    },
+    {
+      "parameters": {
+        "content": "## Retry Logic\n\nThe OpenAI HTTP Request node has:\n- `retryOnFail: true`\n- `maxTries: 3`\n- `waitBetweenTries: 2000ms`\n\nThis handles transient API errors gracefully without failing the whole workflow.",
+        "height": 200,
+        "width": 300,
+        "color": 3
+      },
+      "id": "d3c4e5f6-0003-4000-8000-000000000003",
+      "name": "Sticky Note - Retry",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [660, -460]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-ticket",
+        "authentication": "none",
+        "responseMode": "lastNode",
+        "options": {
+          "ignoreBots": false,
+          "rawBody": false
+        }
+      },
+      "id": "d3c4e5f6-0003-4000-8000-000000000004",
+      "name": "Webhook - Receive Ticket",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 160],
+      "webhookId": "support-ticket-webhook-001"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ext-001",
+              "name": "ticket_id",
+              "value": "={{ $json.body?.ticket_id || $json.ticket_id || 'TKT-' + $now.toMillis() }}",
+              "type": "string"
+            },
+            {
+              "id": "ext-002",
+              "name": "customer_name",
+              "value": "={{ $json.body?.customer_name || $json.customer_name || 'Unknown Customer' }}",
+              "type": "string"
+            },
+            {
+              "id": "ext-003",
+              "name": "customer_email",
+              "value": "={{ $json.body?.customer_email || $json.customer_email || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "ext-004",
+              "name": "subject",
+              "value": "={{ $json.body?.subject || $json.subject || 'No Subject' }}",
+              "type": "string"
+            },
+            {
+              "id": "ext-005",
+              "name": "message",
+              "value": "={{ $json.body?.message || $json.message || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "ext-006",
+              "name": "plan",
+              "value": "={{ $json.body?.plan || $json.plan || 'unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "ext-007",
+              "name": "channel",
+              "value": "={{ $json.body?.channel || $json.channel || 'unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "ext-008",
+              "name": "received_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d3c4e5f6-0003-4000-8000-000000000005",
+      "name": "Set - Extract Ticket Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [480, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0.1,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an AI automation assistant inside a business workflow. Use only the provided input. Do not invent details. If information is missing, return 'unknown' or 'not mentioned'. Always return valid JSON matching the requested schema.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Classify this customer support ticket and return a JSON object with exactly these fields:\\n\\n- category: string, one of: 'billing', 'technical_issue', 'account_access', 'product_question', 'cancellation', 'feature_request', 'other'\\n- priority: string, one of: 'low', 'medium', 'high', 'critical'\\n- sentiment: string, one of: 'positive', 'neutral', 'negative'\\n- confidence: number 0.0 to 1.0 indicating classification confidence\\n- summary: string, a one-sentence summary of the issue\\n- suggested_response: string, a brief suggested first-response message (under 100 words, professional and empathetic)\\n- tags: array of up to 5 relevant keyword strings\\n- escalate: boolean, true if this ticket should be escalated immediately\\n\\nPriority rules:\\n- critical: service down, data loss, security breach, high-value customer cannot access account\\n- high: major feature broken, billing error, cancellation risk\\n- medium: partial functionality issue, general question from paid user\\n- low: general inquiry, feature request, positive feedback\\n\\nTicket Details:\\nTicket ID: {{ $json.ticket_id }}\\nCustomer: {{ $json.customer_name }} ({{ $json.customer_email }})\\nPlan: {{ $json.plan }}\\nChannel: {{ $json.channel }}\\nSubject: {{ $json.subject }}\\nMessage: {{ $json.message }}\"\n    }\n  ]\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "d3c4e5f6-0003-4000-8000-000000000006",
+      "name": "OpenAI - Classify Ticket",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 160],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openai-header-auth",
+          "name": "OpenAI API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "pr-001",
+              "name": "ai_category",
+              "value": "={{ JSON.parse($json.choices[0].message.content).category }}",
+              "type": "string"
+            },
+            {
+              "id": "pr-002",
+              "name": "ai_priority",
+              "value": "={{ JSON.parse($json.choices[0].message.content).priority }}",
+              "type": "string"
+            },
+            {
+              "id": "pr-003",
+              "name": "ai_sentiment",
+              "value": "={{ JSON.parse($json.choices[0].message.content).sentiment }}",
+              "type": "string"
+            },
+            {
+              "id": "pr-004",
+              "name": "ai_confidence",
+              "value": "={{ JSON.parse($json.choices[0].message.content).confidence }}",
+              "type": "number"
+            },
+            {
+              "id": "pr-005",
+              "name": "ai_summary",
+              "value": "={{ JSON.parse($json.choices[0].message.content).summary }}",
+              "type": "string"
+            },
+            {
+              "id": "pr-006",
+              "name": "ai_suggested_response",
+              "value": "={{ JSON.parse($json.choices[0].message.content).suggested_response }}",
+              "type": "string"
+            },
+            {
+              "id": "pr-007",
+              "name": "ai_tags",
+              "value": "={{ JSON.parse($json.choices[0].message.content).tags }}",
+              "type": "array"
+            },
+            {
+              "id": "pr-008",
+              "name": "ai_escalate",
+              "value": "={{ JSON.parse($json.choices[0].message.content).escalate }}",
+              "type": "boolean"
+            },
+            {
+              "id": "pr-009",
+              "name": "ticket_id",
+              "value": "={{ $('Set - Extract Ticket Fields').item.json.ticket_id }}",
+              "type": "string"
+            },
+            {
+              "id": "pr-010",
+              "name": "customer_name",
+              "value": "={{ $('Set - Extract Ticket Fields').item.json.customer_name }}",
+              "type": "string"
+            },
+            {
+              "id": "pr-011",
+              "name": "customer_email",
+              "value": "={{ $('Set - Extract Ticket Fields').item.json.customer_email }}",
+              "type": "string"
+            },
+            {
+              "id": "pr-012",
+              "name": "subject",
+              "value": "={{ $('Set - Extract Ticket Fields').item.json.subject }}",
+              "type": "string"
+            },
+            {
+              "id": "pr-013",
+              "name": "plan",
+              "value": "={{ $('Set - Extract Ticket Fields').item.json.plan }}",
+              "type": "string"
+            },
+            {
+              "id": "pr-014",
+              "name": "received_at",
+              "value": "={{ $('Set - Extract Ticket Fields').item.json.received_at }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d3c4e5f6-0003-4000-8000-000000000007",
+      "name": "Set - Parse Classification",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [960, 160]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.ai_priority }}",
+                    "rightValue": "critical",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "critical"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.ai_priority }}",
+                    "rightValue": "high",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "high"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.ai_priority }}",
+                    "rightValue": "medium",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "medium"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.ai_priority }}",
+                    "rightValue": "low",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "low"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "unknown"
+        }
+      },
+      "id": "d3c4e5f6-0003-4000-8000-000000000008",
+      "name": "Switch - Route by Priority",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.1,
+      "position": [1200, 160]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#support-critical",
+          "mode": "name"
+        },
+        "text": "=:rotating_light: *CRITICAL TICKET* :rotating_light:\n\n*Ticket:* {{ $json.ticket_id }} | *Category:* {{ $json.ai_category.replace('_', ' ').toUpperCase() }}\n*Customer:* {{ $json.customer_name }} ({{ $json.customer_email }}) | *Plan:* {{ $json.plan }}\n*Sentiment:* {{ $json.ai_sentiment }} | *Escalate:* {{ $json.ai_escalate ? ':red_circle: YES' : ':white_circle: No' }}\n\n*Subject:* {{ $json.subject }}\n*AI Summary:* {{ $json.ai_summary }}\n\n*Suggested Response:*\n_{{ $json.ai_suggested_response }}_\n\n*Tags:* {{ $json.ai_tags.join(', ') }}\n*Received:* {{ $json.received_at }}\n\n@here Please respond immediately.",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "d3c4e5f6-0003-4000-8000-000000000009",
+      "name": "Slack - Critical Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1440, 0],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-oauth2-cred",
+          "name": "Slack OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#support-high",
+          "mode": "name"
+        },
+        "text": "=:large_orange_circle: *HIGH PRIORITY TICKET*\n\n*Ticket:* {{ $json.ticket_id }} | *Category:* {{ $json.ai_category.replace('_', ' ').toUpperCase() }}\n*Customer:* {{ $json.customer_name }} | *Plan:* {{ $json.plan }}\n*Sentiment:* {{ $json.ai_sentiment }}\n\n*Subject:* {{ $json.subject }}\n*Summary:* {{ $json.ai_summary }}\n\n*Tags:* {{ $json.ai_tags.join(', ') }}\n*Received:* {{ $json.received_at }}",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "d3c4e5f6-0003-4000-8000-000000000010",
+      "name": "Slack - High Priority Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1440, 160],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-oauth2-cred",
+          "name": "Slack OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Medium Priority Tickets",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Ticket ID": "={{ $json.ticket_id }}",
+            "Received At": "={{ $json.received_at }}",
+            "Customer Name": "={{ $json.customer_name }}",
+            "Customer Email": "={{ $json.customer_email }}",
+            "Plan": "={{ $json.plan }}",
+            "Subject": "={{ $json.subject }}",
+            "Category": "={{ $json.ai_category }}",
+            "Priority": "={{ $json.ai_priority }}",
+            "Sentiment": "={{ $json.ai_sentiment }}",
+            "Confidence": "={{ $json.ai_confidence }}",
+            "AI Summary": "={{ $json.ai_summary }}",
+            "Suggested Response": "={{ $json.ai_suggested_response }}",
+            "Tags": "={{ $json.ai_tags.join(', ') }}",
+            "Escalate": "={{ $json.ai_escalate }}",
+            "Status": "Open"
+          },
+          "matchingColumns": ["Ticket ID"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "d3c4e5f6-0003-4000-8000-000000000011",
+      "name": "Google Sheets - Medium Queue",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1440, 320],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gsheets-oauth2-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Low Priority Tickets",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Ticket ID": "={{ $json.ticket_id }}",
+            "Received At": "={{ $json.received_at }}",
+            "Customer Name": "={{ $json.customer_name }}",
+            "Customer Email": "={{ $json.customer_email }}",
+            "Plan": "={{ $json.plan }}",
+            "Subject": "={{ $json.subject }}",
+            "Category": "={{ $json.ai_category }}",
+            "Priority": "={{ $json.ai_priority }}",
+            "Sentiment": "={{ $json.ai_sentiment }}",
+            "Confidence": "={{ $json.ai_confidence }}",
+            "AI Summary": "={{ $json.ai_summary }}",
+            "Suggested Response": "={{ $json.ai_suggested_response }}",
+            "Tags": "={{ $json.ai_tags.join(', ') }}",
+            "Status": "Open"
+          },
+          "matchingColumns": ["Ticket ID"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "d3c4e5f6-0003-4000-8000-000000000012",
+      "name": "Google Sheets - Low Queue",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1440, 480],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gsheets-oauth2-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "page",
+        "operation": "create",
+        "databaseId": {
+          "__rl": true,
+          "value": "YOUR_NOTION_DATABASE_ID_HERE",
+          "mode": "id"
+        },
+        "title": "={{ $json.ticket_id + ' — ' + $json.subject }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Ticket ID",
+              "textValue": "={{ $json.ticket_id }}"
+            },
+            {
+              "key": "Customer Name",
+              "textValue": "={{ $json.customer_name }}"
+            },
+            {
+              "key": "Customer Email",
+              "emailValue": "={{ $json.customer_email }}"
+            },
+            {
+              "key": "Category",
+              "selectValue": "={{ $json.ai_category }}"
+            },
+            {
+              "key": "Priority",
+              "selectValue": "={{ $json.ai_priority }}"
+            },
+            {
+              "key": "Sentiment",
+              "selectValue": "={{ $json.ai_sentiment }}"
+            },
+            {
+              "key": "Status",
+              "selectValue": "Open"
+            },
+            {
+              "key": "Plan",
+              "textValue": "={{ $json.plan }}"
+            },
+            {
+              "key": "Received At",
+              "dateValue": "={{ $json.received_at }}"
+            }
+          ]
+        },
+        "blockUi": {
+          "blockValues": [
+            {
+              "type": "heading_2",
+              "textContent": "AI Classification Summary"
+            },
+            {
+              "type": "paragraph",
+              "textContent": "={{ $json.ai_summary }}"
+            },
+            {
+              "type": "heading_2",
+              "textContent": "Suggested First Response"
+            },
+            {
+              "type": "paragraph",
+              "textContent": "={{ $json.ai_suggested_response }}"
+            },
+            {
+              "type": "heading_2",
+              "textContent": "Original Message"
+            },
+            {
+              "type": "paragraph",
+              "textContent": "={{ $('Set - Extract Ticket Fields').item.json.message }}"
+            }
+          ]
+        }
+      },
+      "id": "d3c4e5f6-0003-4000-8000-000000000013",
+      "name": "Notion - Create Ticket Page",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [1700, 240],
+      "credentials": {
+        "notionApi": {
+          "id": "notion-api-cred",
+          "name": "Notion API"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "d3c4e5f6-0003-4000-8000-000000000014",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 500]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#workflow-errors",
+          "mode": "name"
+        },
+        "text": "=:x: *Workflow Error: Support Ticket Classifier*\n\n*Error:* {{ $json.execution.error.message }}\n*Node:* {{ $json.execution.lastNodeExecuted }}\n*Execution ID:* {{ $json.execution.id }}\n*Time:* {{ $now.toISO() }}\n\nCheck n8n dashboard for details.",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "d3c4e5f6-0003-4000-8000-000000000015",
+      "name": "Slack - Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [480, 500],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-oauth2-cred",
+          "name": "Slack OAuth2"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Receive Ticket": {
+      "main": [
+        [
+          {
+            "node": "Set - Extract Ticket Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Extract Ticket Fields": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Classify Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Classify Ticket": {
+      "main": [
+        [
+          {
+            "node": "Set - Parse Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Parse Classification": {
+      "main": [
+        [
+          {
+            "node": "Switch - Route by Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch - Route by Priority": {
+      "main": [
+        [
+          {
+            "node": "Slack - Critical Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack - High Priority Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets - Medium Queue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets - Low Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Critical Alert": {
+      "main": [
+        [
+          {
+            "node": "Notion - Create Ticket Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - High Priority Alert": {
+      "main": [
+        [
+          {
+            "node": "Notion - Create Ticket Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Medium Queue": {
+      "main": [
+        [
+          {
+            "node": "Notion - Create Ticket Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Low Queue": {
+      "main": [
+        [
+          {
+            "node": "Notion - Create Ticket Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Slack - Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "saveExecutionProgress": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "timezone": "UTC"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z",
+      "id": "tag-support-ai",
+      "name": "AI Automation"
+    },
+    {
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z",
+      "id": "tag-support",
+      "name": "Support"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-01T00:00:00.000Z",
+  "versionId": "v1.0.0",
+  "active": false
+}

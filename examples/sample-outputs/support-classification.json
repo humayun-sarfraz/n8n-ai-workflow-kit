@@ -1,0 +1,8 @@
+{
+  "category": "technical_issue",
+  "priority": "critical",
+  "sentiment": "angry",
+  "department": "technical_support",
+  "summary": "A Pro plan customer reports that all API calls to the /v2/sync endpoint have been returning HTTP 502 errors since May 13th at approximately 09:15 AM EST, coinciding with a platform maintenance window. Approximately 4,000 customer records per day are failing to sync, with unknown data loss, and the customer is threatening contract escalation if not resolved within hours.",
+  "suggested_response": "Hi Marcus,\n\nThank you for reaching out, and I sincerely apologize for the disruption this is causing to your operations at BrightWave. I completely understand the urgency — a broken sync affecting 4,000 records per day is unacceptable, and I want you to know we are treating this as a critical incident.\n\nYour ticket (TKT-20240514-00847) has been escalated immediately to our senior engineering team with a Priority 1 flag. An engineer is actively investigating the /v2/sync 502 errors and the correlation with yesterday's maintenance window.\n\nWhat happens next:\n- You will receive a technical update within the next 60 minutes.\n- Our team will assess data integrity and identify whether any records need to be re-synced.\n- I will personally follow up with you every hour until this is resolved.\n\nMarcus, I hear your frustration and it is completely valid. We will get this resolved as quickly as humanly possible.\n\nThank you for your patience.\n\n[Support Engineer Name]\nPriority Support Team"
+}

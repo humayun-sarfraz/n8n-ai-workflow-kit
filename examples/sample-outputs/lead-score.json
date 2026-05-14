@@ -1,0 +1,10 @@
+{
+  "lead_score": 82,
+  "lead_status": "hot",
+  "reasoning": "Jane Smith represents a strong inbound lead. She has clearly articulated a specific business need (AI automation for support tickets), provided a defined budget range ($5,000–$10,000) that aligns with typical entry-level enterprise packages, and indicated an immediate timeline of 'this month' — signaling genuine buying intent rather than exploratory research. The company size of 50–100 employees suggests she is at an organization mature enough to invest in automation tooling, and the lead originated from the website contact form, indicating active interest rather than a cold outreach list.",
+  "recommended_next_step": "Assign to a senior sales representative and schedule a discovery call within 24 hours. Prepare a tailored demo focused on support ticket automation use cases. Send a calendar invite with a brief agenda.",
+  "follow_up_email": {
+    "subject": "Quick question about your support automation goals, Jane",
+    "body": "Hi Jane,\n\nThank you for reaching out — your message about automating support ticket handling at Acme Inc caught my attention right away. This is exactly the kind of challenge we help mid-sized teams solve every day.\n\nBased on what you shared, it sounds like you're looking for a solution that can intelligently triage, classify, and route incoming support requests — reducing manual work for your team and improving response times for your customers. We have a workflow built specifically for this use case that I'd love to show you.\n\nGiven your timeline of 'this month,' I'd like to suggest a focused 30-minute demo call this week where I can walk you through how it works, answer your specific questions, and give you a clear picture of implementation and pricing within your budget range.\n\nWould Thursday or Friday work for you? I'm flexible on timing.\n\nLooking forward to connecting,\n\n[Your Name]\n[Your Title]\n[Company Name]\n[Phone Number]"
+  }
+}

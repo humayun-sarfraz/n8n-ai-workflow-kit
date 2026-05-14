@@ -1,0 +1,503 @@
+{
+  "name": "AI Email Summarizer",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "b1a2c3d4-0001-4000-8000-000000000001",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 400],
+      "notes": "Use this to test the workflow manually without waiting for a real email."
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "labelIds": ["INBOX"],
+          "readStatus": "unread"
+        },
+        "options": {
+          "dataPropertyName": "message"
+        }
+      },
+      "id": "b1a2c3d4-0001-4000-8000-000000000002",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [240, 240],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth2-cred",
+          "name": "Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## AI Email Summarizer\n\nThis workflow automatically:\n1. Triggers on new unread Gmail messages\n2. Extracts key fields from the email\n3. Sends to OpenAI to summarize and classify urgency\n4. Routes urgent emails to Slack for immediate action\n5. Logs non-urgent emails to Google Sheets\n6. Handles errors gracefully with Slack alerts\n\n**Setup required:**\n- Gmail OAuth2 credential\n- OpenAI API credential (HTTP Header Auth)\n- Slack credential\n- Google Sheets credential\n\n**Note:** Set `OPENAI_API_KEY` in your n8n credentials.",
+        "height": 360,
+        "width": 380,
+        "color": 5
+      },
+      "id": "b1a2c3d4-0001-4000-8000-000000000003",
+      "name": "Sticky Note - Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, -120]
+    },
+    {
+      "parameters": {
+        "content": "## OpenAI System Prompt\n\n\"You are an AI automation assistant inside a business workflow. Use only the provided input. Do not invent details. If information is missing, return 'unknown' or 'not mentioned'. Always return valid JSON matching the requested schema.\"\n\n**Output schema:**\n```json\n{\n  \"summary\": [\"bullet 1\", \"bullet 2\", \"bullet 3\"],\n  \"urgency\": \"low|medium|high\",\n  \"suggested_action\": \"string\",\n  \"reply_needed\": true|false\n}\n```",
+        "height": 300,
+        "width": 360,
+        "color": 3
+      },
+      "id": "b1a2c3d4-0001-4000-8000-000000000004",
+      "name": "Sticky Note - AI Prompt",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [700, -120]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "field-001",
+              "name": "email_subject",
+              "value": "={{ $json.subject || $json.payload?.headers?.find(h => h.name === 'Subject')?.value || 'No Subject' }}",
+              "type": "string"
+            },
+            {
+              "id": "field-002",
+              "name": "email_from",
+              "value": "={{ $json.from || $json.payload?.headers?.find(h => h.name === 'From')?.value || 'Unknown Sender' }}",
+              "type": "string"
+            },
+            {
+              "id": "field-003",
+              "name": "email_body",
+              "value": "={{ $json.text || $json.snippet || $json.body || 'No body content available' }}",
+              "type": "string"
+            },
+            {
+              "id": "field-004",
+              "name": "email_date",
+              "value": "={{ $json.date || $json.internalDate || $now.toISO() }}",
+              "type": "string"
+            },
+            {
+              "id": "field-005",
+              "name": "email_id",
+              "value": "={{ $json.id || $json.messageId || 'unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "field-006",
+              "name": "email_thread_id",
+              "value": "={{ $json.threadId || 'unknown' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {
+          "includeBinaryData": false
+        }
+      },
+      "id": "b1a2c3d4-0001-4000-8000-000000000005",
+      "name": "Set - Extract Email Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0.2,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an AI automation assistant inside a business workflow. Use only the provided input. Do not invent details. If information is missing, return 'unknown' or 'not mentioned'. Always return valid JSON matching the requested schema.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Analyze the following email and return a JSON object with exactly these fields:\\n\\n- summary: array of exactly 3 bullet-point strings summarizing the email\\n- urgency: string, one of 'low', 'medium', or 'high'\\n- suggested_action: string describing the recommended next step\\n- reply_needed: boolean, true if the email requires a reply\\n\\nEmail Details:\\nFrom: {{ $json.email_from }}\\nSubject: {{ $json.email_subject }}\\nDate: {{ $json.email_date }}\\nBody:\\n{{ $json.email_body }}\"\n    }\n  ]\n}",
+        "options": {
+          "timeout": 30000,
+          "response": {
+            "response": {
+              "neverError": false
+            }
+          }
+        }
+      },
+      "id": "b1a2c3d4-0001-4000-8000-000000000006",
+      "name": "OpenAI - Summarize Email",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [740, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openai-header-auth",
+          "name": "OpenAI API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "parse-001",
+              "name": "ai_summary",
+              "value": "={{ JSON.parse($json.choices[0].message.content).summary }}",
+              "type": "array"
+            },
+            {
+              "id": "parse-002",
+              "name": "ai_urgency",
+              "value": "={{ JSON.parse($json.choices[0].message.content).urgency }}",
+              "type": "string"
+            },
+            {
+              "id": "parse-003",
+              "name": "ai_suggested_action",
+              "value": "={{ JSON.parse($json.choices[0].message.content).suggested_action }}",
+              "type": "string"
+            },
+            {
+              "id": "parse-004",
+              "name": "ai_reply_needed",
+              "value": "={{ JSON.parse($json.choices[0].message.content).reply_needed }}",
+              "type": "boolean"
+            },
+            {
+              "id": "parse-005",
+              "name": "email_subject",
+              "value": "={{ $('Set - Extract Email Fields').item.json.email_subject }}",
+              "type": "string"
+            },
+            {
+              "id": "parse-006",
+              "name": "email_from",
+              "value": "={{ $('Set - Extract Email Fields').item.json.email_from }}",
+              "type": "string"
+            },
+            {
+              "id": "parse-007",
+              "name": "email_date",
+              "value": "={{ $('Set - Extract Email Fields').item.json.email_date }}",
+              "type": "string"
+            },
+            {
+              "id": "parse-008",
+              "name": "email_id",
+              "value": "={{ $('Set - Extract Email Fields').item.json.email_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1a2c3d4-0001-4000-8000-000000000007",
+      "name": "Set - Parse AI Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [980, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-001",
+              "leftValue": "={{ $json.ai_urgency }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1a2c3d4-0001-4000-8000-000000000008",
+      "name": "IF - Check Urgency",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1220, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#urgent-emails",
+          "mode": "name"
+        },
+        "text": "=:rotating_light: *URGENT EMAIL ALERT* :rotating_light:\n\n*From:* {{ $json.email_from }}\n*Subject:* {{ $json.email_subject }}\n*Date:* {{ $json.email_date }}\n\n*AI Summary:*\n{{ $json.ai_summary.map((s, i) => `${i+1}. ${s}`).join('\\n') }}\n\n*Suggested Action:* {{ $json.ai_suggested_action }}\n*Reply Needed:* {{ $json.ai_reply_needed ? 'Yes :white_check_mark:' : 'No :x:' }}\n*Urgency:* :red_circle: HIGH",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "b1a2c3d4-0001-4000-8000-000000000009",
+      "name": "Slack - Send Urgent Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1460, 160],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-oauth2-cred",
+          "name": "Slack OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Email Log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now.toISO() }}",
+            "Email ID": "={{ $json.email_id }}",
+            "From": "={{ $json.email_from }}",
+            "Subject": "={{ $json.email_subject }}",
+            "Date": "={{ $json.email_date }}",
+            "Summary": "={{ $json.ai_summary.join(' | ') }}",
+            "Urgency": "={{ $json.ai_urgency }}",
+            "Suggested Action": "={{ $json.ai_suggested_action }}",
+            "Reply Needed": "={{ $json.ai_reply_needed }}"
+          },
+          "matchingColumns": ["Email ID"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "b1a2c3d4-0001-4000-8000-000000000010",
+      "name": "Google Sheets - Log Non-Urgent",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1460, 440],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gsheets-oauth2-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "b1a2c3d4-0001-4000-8000-000000000011",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 620]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#workflow-errors",
+          "mode": "name"
+        },
+        "text": "=:x: *Workflow Error: AI Email Summarizer*\n\n*Error:* {{ $json.execution.error.message }}\n*Node:* {{ $json.execution.lastNodeExecuted }}\n*Execution ID:* {{ $json.execution.id }}\n*Time:* {{ $now.toISO() }}\n\nPlease investigate in n8n dashboard.",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "b1a2c3d4-0001-4000-8000-000000000012",
+      "name": "Slack - Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [500, 620],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-oauth2-cred",
+          "name": "Slack OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Error Handling\n\nThe Error Trigger catches any execution errors from this workflow and sends a Slack alert to `#workflow-errors`.\n\nMake sure to set this workflow as the error workflow for itself in Settings.",
+        "height": 160,
+        "width": 320,
+        "color": 1
+      },
+      "id": "b1a2c3d4-0001-4000-8000-000000000013",
+      "name": "Sticky Note - Error Handling",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 800]
+    },
+    {
+      "parameters": {
+        "content": "## Routing Logic\n\n- **High urgency** → Slack `#urgent-emails` channel\n- **Medium / Low urgency** → Google Sheets log\n\nCustomize the urgency threshold or add additional branches (e.g., medium urgency to a different Slack channel) as needed.",
+        "height": 180,
+        "width": 360,
+        "color": 4
+      },
+      "id": "b1a2c3d4-0001-4000-8000-000000000014",
+      "name": "Sticky Note - Routing",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1220, -120]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set - Extract Email Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set - Extract Email Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Extract Email Fields": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Summarize Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Summarize Email": {
+      "main": [
+        [
+          {
+            "node": "Set - Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "IF - Check Urgency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Check Urgency": {
+      "main": [
+        [
+          {
+            "node": "Slack - Send Urgent Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets - Log Non-Urgent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Slack - Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "saveExecutionProgress": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "timezone": "UTC"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z",
+      "id": "tag-email-ai",
+      "name": "AI Automation"
+    },
+    {
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z",
+      "id": "tag-email",
+      "name": "Email"
+    }
+  ],
+  "triggerCount": 2,
+  "updatedAt": "2025-01-01T00:00:00.000Z",
+  "versionId": "v1.0.0",
+  "active": false
+}

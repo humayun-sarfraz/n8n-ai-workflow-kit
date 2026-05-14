@@ -1,0 +1,682 @@
+{
+  "name": "Invoice Data Extraction",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Invoice Data Extraction\n\n**Purpose:** Extracts structured data from invoice text/images using AI, validates totals, and routes high-value invoices for human approval.\n\n**Flow:**\n1. Receive invoice via Webhook (POST raw text or base64 image)\n2. OpenAI extracts all invoice fields\n3. Validate and cross-check totals\n4. High-value invoices (>$5,000) pause for human approval\n5. Approved invoices are logged to Google Sheets\n6. Slack alert sent for high-value items\n\n**Setup Required:**\n- Configure Webhook URL in your invoice intake system\n- OpenAI API key\n- Google Sheets credential + Sheet ID\n- Slack credential\n- Set approval webhook URL in Wait node",
+        "height": 380,
+        "width": 400,
+        "color": 5
+      },
+      "id": "sticky-intro",
+      "name": "Intro Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-500, -220]
+    },
+    {
+      "parameters": {
+        "content": "### Human Approval Gate\nFor invoices over $5,000 the workflow pauses here. A Slack message with Approve/Reject buttons is sent to the finance team. The workflow resumes when:\n- The approver clicks a button\n- OR the 48-hour timeout expires (auto-rejected)\n\nApproval webhook URL must match the Wait node's resume URL.",
+        "height": 200,
+        "width": 340,
+        "color": 4
+      },
+      "id": "sticky-approval",
+      "name": "Approval Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1060, -220]
+    },
+    {
+      "parameters": {
+        "content": "### Retry Logic\nThe OpenAI call has a 30s timeout. If it fails, the Error Trigger catches it and retries via a separate sub-workflow call, or sends an alert for manual processing.",
+        "height": 160,
+        "width": 300,
+        "color": 3
+      },
+      "id": "sticky-retry",
+      "name": "Retry Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1700, 460]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "invoice-extract",
+        "responseMode": "lastNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Receive Invoice",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-160, 60],
+      "webhookId": "invoice-extract-webhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o\",\n  \"temperature\": 0.1,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an expert invoice data extraction AI. Extract ALL fields from the provided invoice text and return a JSON object with these exact fields:\\n\\n- vendor_name (string): name of the vendor/supplier\\n- vendor_address (string): full vendor address\\n- vendor_email (string): vendor email if present\\n- invoice_number (string): invoice or bill number\\n- invoice_date (string): invoice date in ISO 8601 format (YYYY-MM-DD)\\n- due_date (string): payment due date in ISO 8601 format (YYYY-MM-DD)\\n- po_number (string): purchase order number if present\\n- currency (string): 3-letter currency code e.g. USD, EUR, GBP\\n- subtotal (number): subtotal before tax\\n- tax_amount (number): total tax\\n- discount_amount (number): total discounts applied\\n- total_amount (number): grand total\\n- amount_due (number): amount still owed\\n- payment_terms (string): e.g. Net 30, Due on receipt\\n- line_items (array): array of objects, each with: description (string), quantity (number), unit_price (number), total (number)\\n- needs_review (boolean): true if data is ambiguous, totals don't match, or fields are missing\\n- review_reason (string): explanation if needs_review is true\\n\\nIf a field is not present in the invoice, use null. For numeric fields use 0 if not found. Return ONLY valid JSON.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Extract all data from this invoice:\\n\\n{{ $json.body.invoice_text || $json.body.text || JSON.stringify($json.body) }}\"\n    }\n  ]\n}",
+        "options": {
+          "timeout": 30000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 2,
+            "waitBetweenTries": 3000
+          }
+        }
+      },
+      "id": "openai-extract",
+      "name": "OpenAI: Extract Invoice Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [80, 60],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openai-api-key",
+          "name": "OpenAI API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "v1",
+              "name": "vendor_name",
+              "value": "={{ JSON.parse($json.choices[0].message.content).vendor_name || 'Unknown Vendor' }}",
+              "type": "string"
+            },
+            {
+              "id": "v2",
+              "name": "vendor_address",
+              "value": "={{ JSON.parse($json.choices[0].message.content).vendor_address || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "v3",
+              "name": "vendor_email",
+              "value": "={{ JSON.parse($json.choices[0].message.content).vendor_email || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "v4",
+              "name": "invoice_number",
+              "value": "={{ JSON.parse($json.choices[0].message.content).invoice_number || 'N/A' }}",
+              "type": "string"
+            },
+            {
+              "id": "v5",
+              "name": "invoice_date",
+              "value": "={{ JSON.parse($json.choices[0].message.content).invoice_date || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "v6",
+              "name": "due_date",
+              "value": "={{ JSON.parse($json.choices[0].message.content).due_date || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "v7",
+              "name": "po_number",
+              "value": "={{ JSON.parse($json.choices[0].message.content).po_number || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "v8",
+              "name": "currency",
+              "value": "={{ JSON.parse($json.choices[0].message.content).currency || 'USD' }}",
+              "type": "string"
+            },
+            {
+              "id": "v9",
+              "name": "subtotal",
+              "value": "={{ JSON.parse($json.choices[0].message.content).subtotal || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "v10",
+              "name": "tax_amount",
+              "value": "={{ JSON.parse($json.choices[0].message.content).tax_amount || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "v11",
+              "name": "discount_amount",
+              "value": "={{ JSON.parse($json.choices[0].message.content).discount_amount || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "v12",
+              "name": "total_amount",
+              "value": "={{ JSON.parse($json.choices[0].message.content).total_amount || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "v13",
+              "name": "amount_due",
+              "value": "={{ JSON.parse($json.choices[0].message.content).amount_due || JSON.parse($json.choices[0].message.content).total_amount || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "v14",
+              "name": "payment_terms",
+              "value": "={{ JSON.parse($json.choices[0].message.content).payment_terms || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "v15",
+              "name": "line_items_json",
+              "value": "={{ JSON.stringify(JSON.parse($json.choices[0].message.content).line_items || []) }}",
+              "type": "string"
+            },
+            {
+              "id": "v16",
+              "name": "line_items_count",
+              "value": "={{ (JSON.parse($json.choices[0].message.content).line_items || []).length }}",
+              "type": "number"
+            },
+            {
+              "id": "v17",
+              "name": "needs_review",
+              "value": "={{ JSON.parse($json.choices[0].message.content).needs_review || false }}",
+              "type": "boolean"
+            },
+            {
+              "id": "v18",
+              "name": "review_reason",
+              "value": "={{ JSON.parse($json.choices[0].message.content).review_reason || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "v19",
+              "name": "calculated_total",
+              "value": "={{ (JSON.parse($json.choices[0].message.content).subtotal || 0) + (JSON.parse($json.choices[0].message.content).tax_amount || 0) - (JSON.parse($json.choices[0].message.content).discount_amount || 0) }}",
+              "type": "number"
+            },
+            {
+              "id": "v20",
+              "name": "totals_match",
+              "value": "={{ Math.abs((JSON.parse($json.choices[0].message.content).subtotal || 0) + (JSON.parse($json.choices[0].message.content).tax_amount || 0) - (JSON.parse($json.choices[0].message.content).discount_amount || 0) - (JSON.parse($json.choices[0].message.content).total_amount || 0)) < 0.02 }}",
+              "type": "boolean"
+            },
+            {
+              "id": "v21",
+              "name": "extracted_at",
+              "value": "={{ new Date().toISOString() }}",
+              "type": "string"
+            },
+            {
+              "id": "v22",
+              "name": "submission_id",
+              "value": "={{ $json.choices[0].message.content ? 'INV-' + Date.now() : '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-validate",
+      "name": "Validate & Parse Totals",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [320, 60]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.total_amount }}",
+              "rightValue": 5000,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-high-value",
+      "name": "Total > $5,000?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [560, 60]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#finance-approvals",
+          "mode": "name"
+        },
+        "text": "=:moneybag: *High-Value Invoice Requires Approval*\n\n*Submission ID:* {{ $json.submission_id }}\n*Vendor:* {{ $json.vendor_name }}\n*Invoice #:* {{ $json.invoice_number }}\n*Invoice Date:* {{ $json.invoice_date }}\n*Due Date:* {{ $json.due_date }}\n*Total Amount:* {{ $json.currency }} {{ $json.total_amount.toFixed(2) }}\n*Totals Match:* {{ $json.totals_match ? 'Yes' : 'No — Review Needed' }}\n{{ $json.needs_review ? '*AI Flag:* ' + $json.review_reason : '' }}\n\nPlease review and approve or reject:\n• *Approve:* POST to `{{ $json.approval_resume_url }}` with `{\"approved\": true}`\n• *Reject:* POST to `{{ $json.approval_resume_url }}` with `{\"approved\": false, \"reason\": \"your reason\"}`\n\n*This request expires in 48 hours.*",
+        "otherOptions": {}
+      },
+      "id": "slack-approval-request",
+      "name": "Slack: Request Approval",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [800, -80],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-cred",
+          "name": "Slack"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {
+          "webhookSuffix": "=invoice-approve-{{ $json.submission_id }}",
+          "responseData": "firstEntryJson",
+          "limitWaitTime": true,
+          "limitType": "afterTimeInterval",
+          "resumeAmount": 48,
+          "resumeUnit": "hours"
+        }
+      },
+      "id": "wait-approval",
+      "name": "Wait for Approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1040, -80],
+      "webhookId": "invoice-approval-wait"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.body.approved }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-approved",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1280, -80]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_INVOICE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Invoices",
+          "mode": "list",
+          "cachedResultName": "Invoices"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Submission ID": "={{ $('Validate & Parse Totals').item.json.submission_id }}",
+            "Vendor Name": "={{ $('Validate & Parse Totals').item.json.vendor_name }}",
+            "Invoice Number": "={{ $('Validate & Parse Totals').item.json.invoice_number }}",
+            "Invoice Date": "={{ $('Validate & Parse Totals').item.json.invoice_date }}",
+            "Due Date": "={{ $('Validate & Parse Totals').item.json.due_date }}",
+            "Currency": "={{ $('Validate & Parse Totals').item.json.currency }}",
+            "Subtotal": "={{ $('Validate & Parse Totals').item.json.subtotal }}",
+            "Tax Amount": "={{ $('Validate & Parse Totals').item.json.tax_amount }}",
+            "Discount": "={{ $('Validate & Parse Totals').item.json.discount_amount }}",
+            "Total Amount": "={{ $('Validate & Parse Totals').item.json.total_amount }}",
+            "Amount Due": "={{ $('Validate & Parse Totals').item.json.amount_due }}",
+            "Payment Terms": "={{ $('Validate & Parse Totals').item.json.payment_terms }}",
+            "Line Items Count": "={{ $('Validate & Parse Totals').item.json.line_items_count }}",
+            "Totals Match": "={{ $('Validate & Parse Totals').item.json.totals_match }}",
+            "Needs Review": "={{ $('Validate & Parse Totals').item.json.needs_review }}",
+            "Review Reason": "={{ $('Validate & Parse Totals').item.json.review_reason }}",
+            "Status": "=Approved",
+            "Extracted At": "={{ $('Validate & Parse Totals').item.json.extracted_at }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sheets-log-approved",
+      "name": "Google Sheets: Log Approved",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1520, -200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_INVOICE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Invoices",
+          "mode": "list",
+          "cachedResultName": "Invoices"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Submission ID": "={{ $('Validate & Parse Totals').item.json.submission_id }}",
+            "Vendor Name": "={{ $('Validate & Parse Totals').item.json.vendor_name }}",
+            "Invoice Number": "={{ $('Validate & Parse Totals').item.json.invoice_number }}",
+            "Invoice Date": "={{ $('Validate & Parse Totals').item.json.invoice_date }}",
+            "Due Date": "={{ $('Validate & Parse Totals').item.json.due_date }}",
+            "Currency": "={{ $('Validate & Parse Totals').item.json.currency }}",
+            "Total Amount": "={{ $('Validate & Parse Totals').item.json.total_amount }}",
+            "Status": "=Rejected",
+            "Review Reason": "={{ $json.body.reason || 'Rejected by approver' }}",
+            "Extracted At": "={{ $('Validate & Parse Totals').item.json.extracted_at }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sheets-log-rejected",
+      "name": "Google Sheets: Log Rejected",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1520, 40],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_INVOICE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Invoices",
+          "mode": "list",
+          "cachedResultName": "Invoices"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Submission ID": "={{ $json.submission_id }}",
+            "Vendor Name": "={{ $json.vendor_name }}",
+            "Invoice Number": "={{ $json.invoice_number }}",
+            "Invoice Date": "={{ $json.invoice_date }}",
+            "Due Date": "={{ $json.due_date }}",
+            "Currency": "={{ $json.currency }}",
+            "Subtotal": "={{ $json.subtotal }}",
+            "Tax Amount": "={{ $json.tax_amount }}",
+            "Discount": "={{ $json.discount_amount }}",
+            "Total Amount": "={{ $json.total_amount }}",
+            "Amount Due": "={{ $json.amount_due }}",
+            "Payment Terms": "={{ $json.payment_terms }}",
+            "Line Items Count": "={{ $json.line_items_count }}",
+            "Totals Match": "={{ $json.totals_match }}",
+            "Needs Review": "={{ $json.needs_review }}",
+            "Review Reason": "={{ $json.review_reason }}",
+            "Status": "=Auto-Approved (Under $5,000)",
+            "Extracted At": "={{ $json.extracted_at }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sheets-log-auto",
+      "name": "Google Sheets: Log Auto-Approved",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [800, 200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#finance-alerts",
+          "mode": "name"
+        },
+        "text": "=:white_check_mark: *High-Value Invoice Approved & Logged*\n\n*Vendor:* {{ $('Validate & Parse Totals').item.json.vendor_name }}\n*Invoice #:* {{ $('Validate & Parse Totals').item.json.invoice_number }}\n*Amount:* {{ $('Validate & Parse Totals').item.json.currency }} {{ $('Validate & Parse Totals').item.json.total_amount.toFixed(2) }}\n*Due:* {{ $('Validate & Parse Totals').item.json.due_date }}\n\nLogged to Google Sheets for payment processing.",
+        "otherOptions": {}
+      },
+      "id": "slack-high-value-approved",
+      "name": "Slack: High-Value Approved",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [1760, -200],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-cred",
+          "name": "Slack"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [1700, 520]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#workflow-errors",
+          "mode": "name"
+        },
+        "text": "=:red_circle: *Workflow Error: Invoice Data Extraction*\n\n*Node:* {{ $json.execution.lastNodeExecuted }}\n*Error:* {{ $json.execution.error.message }}\n*Execution ID:* {{ $json.execution.id }}\n*Time:* {{ new Date().toISOString() }}\n\nThe invoice may need to be resubmitted or processed manually.",
+        "otherOptions": {}
+      },
+      "id": "slack-error",
+      "name": "Slack: Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [1940, 520],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-cred",
+          "name": "Slack"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Receive Invoice": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: Extract Invoice Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: Extract Invoice Data": {
+      "main": [
+        [
+          {
+            "node": "Validate & Parse Totals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Parse Totals": {
+      "main": [
+        [
+          {
+            "node": "Total > $5,000?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Total > $5,000?": {
+      "main": [
+        [
+          {
+            "node": "Slack: Request Approval",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets: Log Auto-Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Request Approval": {
+      "main": [
+        [
+          {
+            "node": "Wait for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Approval": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets: Log Approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets: Log Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets: Log Approved": {
+      "main": [
+        [
+          {
+            "node": "Slack: High-Value Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Slack: Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "saveExecutionProgress": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "timezone": "America/New_York"
+  },
+  "staticData": null,
+  "tags": ["invoice", "finance", "openai", "human-approval", "data-extraction"],
+  "triggerCount": 1,
+  "updatedAt": "2026-05-14T00:00:00.000Z",
+  "versionId": "06-invoice-extraction-v1",
+  "active": false,
+  "id": "workflow-06"
+}

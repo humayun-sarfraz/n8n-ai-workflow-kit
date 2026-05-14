@@ -1,0 +1,10 @@
+{
+  "name": "Jane Smith",
+  "email": "jane@example.com",
+  "company": "Acme Inc",
+  "company_size": "50-100",
+  "message": "We are looking for an AI automation system for support tickets.",
+  "budget": "$5,000-$10,000",
+  "timeline": "This month",
+  "source": "website_contact_form"
+}

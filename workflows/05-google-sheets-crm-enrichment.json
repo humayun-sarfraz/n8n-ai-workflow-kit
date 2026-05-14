@@ -1,0 +1,602 @@
+{
+  "name": "Google Sheets CRM Enrichment",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Google Sheets CRM Enrichment\n\n**Purpose:** Automatically enriches new CRM leads added to Google Sheets using AI classification.\n\n**Flow:**\n1. Triggered when a new row is added to the CRM sheet\n2. Validates required fields (name, email, company)\n3. OpenAI classifies industry, company type, priority, sales angle\n4. Updates the sheet with enriched data\n5. Notifies Slack for high-priority leads\n6. Pushes enriched data to CRM API\n\n**Setup Required:**\n- Google Sheets credential\n- OpenAI API key (in HTTP Request header)\n- Slack credential\n- CRM API endpoint + auth token\n- Set Sheet ID in trigger and update nodes",
+        "height": 340,
+        "width": 380,
+        "color": 5
+      },
+      "id": "sticky-intro",
+      "name": "Intro Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-480, -200]
+    },
+    {
+      "parameters": {
+        "content": "### Error Handling\nAll errors flow here. The Error Trigger catches any node failure and sends an alert to Slack with the error details and which node failed.",
+        "height": 160,
+        "width": 300,
+        "color": 3
+      },
+      "id": "sticky-error",
+      "name": "Error Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1400, 500]
+    },
+    {
+      "parameters": {
+        "content": "### OpenAI Classification\nSend lead data to GPT-4o. Returns:\n- `industry` (SaaS, FinTech, Healthcare, etc.)\n- `company_type` (startup/SMB/enterprise/unknown)\n- `priority` (high/medium/low)\n- `sales_angle` (pain point to address)\n- `recommended_next_step`",
+        "height": 200,
+        "width": 300,
+        "color": 7
+      },
+      "id": "sticky-openai",
+      "name": "OpenAI Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [500, -220]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "list",
+          "cachedResultName": "Sheet1"
+        },
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "event": "rowAdded",
+        "options": {}
+      },
+      "id": "google-sheets-trigger",
+      "name": "New CRM Lead",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [-160, 60],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "lead_name",
+              "value": "={{ $json['Name'] || $json['lead_name'] || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "email",
+              "value": "={{ $json['Email'] || $json['email'] || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "company",
+              "value": "={{ $json['Company'] || $json['company'] || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "phone",
+              "value": "={{ $json['Phone'] || $json['phone'] || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a5",
+              "name": "website",
+              "value": "={{ $json['Website'] || $json['website'] || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a6",
+              "name": "notes",
+              "value": "={{ $json['Notes'] || $json['notes'] || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "a7",
+              "name": "row_number",
+              "value": "={{ $json['row_number'] || $json['__rowIndex'] || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "a8",
+              "name": "is_valid",
+              "value": "={{ ($json['Name'] || $json['lead_name']) && ($json['Email'] || $json['email']) && ($json['Company'] || $json['company']) ? true : false }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-validate",
+      "name": "Validate & Normalize Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [80, 60]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-valid",
+      "name": "Has Required Fields?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [320, 60]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o\",\n  \"temperature\": 0.3,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a B2B sales intelligence analyst. Analyze lead data and return a JSON object with these exact fields:\\n- industry (string): industry vertical e.g. SaaS, FinTech, Healthcare, E-commerce, Manufacturing, Real Estate, Legal, Education, Other\\n- company_type (string): one of startup, SMB, enterprise, unknown\\n- priority (string): one of high, medium, low — based on company size signals and notes\\n- sales_angle (string): the primary pain point or value proposition to lead with (1 sentence)\\n- recommended_next_step (string): specific next action for the sales rep (1 sentence)\\n\\nReturn ONLY valid JSON, no explanation.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Analyze this lead:\\nName: {{ $json.lead_name }}\\nEmail: {{ $json.email }}\\nCompany: {{ $json.company }}\\nWebsite: {{ $json.website }}\\nPhone: {{ $json.phone }}\\nNotes: {{ $json.notes }}\"\n    }\n  ]\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "openai-classify",
+      "name": "OpenAI: Classify Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [560, 60],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openai-api-key",
+          "name": "OpenAI API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b1",
+              "name": "industry",
+              "value": "={{ JSON.parse($json.choices[0].message.content).industry || 'Unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "b2",
+              "name": "company_type",
+              "value": "={{ JSON.parse($json.choices[0].message.content).company_type || 'unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "b3",
+              "name": "priority",
+              "value": "={{ JSON.parse($json.choices[0].message.content).priority || 'medium' }}",
+              "type": "string"
+            },
+            {
+              "id": "b4",
+              "name": "sales_angle",
+              "value": "={{ JSON.parse($json.choices[0].message.content).sales_angle || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "b5",
+              "name": "recommended_next_step",
+              "value": "={{ JSON.parse($json.choices[0].message.content).recommended_next_step || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "b6",
+              "name": "enriched_at",
+              "value": "={{ new Date().toISOString() }}",
+              "type": "string"
+            },
+            {
+              "id": "b7",
+              "name": "lead_name",
+              "value": "={{ $('Validate & Normalize Fields').item.json.lead_name }}",
+              "type": "string"
+            },
+            {
+              "id": "b8",
+              "name": "email",
+              "value": "={{ $('Validate & Normalize Fields').item.json.email }}",
+              "type": "string"
+            },
+            {
+              "id": "b9",
+              "name": "company",
+              "value": "={{ $('Validate & Normalize Fields').item.json.company }}",
+              "type": "string"
+            },
+            {
+              "id": "b10",
+              "name": "row_number",
+              "value": "={{ $('Validate & Normalize Fields').item.json.row_number }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-enriched",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [800, 60]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "list",
+          "cachedResultName": "Sheet1"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Industry": "={{ $json.industry }}",
+            "Company Type": "={{ $json.company_type }}",
+            "Priority": "={{ $json.priority }}",
+            "Sales Angle": "={{ $json.sales_angle }}",
+            "Recommended Next Step": "={{ $json.recommended_next_step }}",
+            "Enriched At": "={{ $json.enriched_at }}"
+          },
+          "matchingColumns": ["Email"],
+          "schema": [
+            { "id": "Industry", "displayName": "Industry", "required": false, "defaultMatch": false, "canBeUsedToMatch": true },
+            { "id": "Company Type", "displayName": "Company Type", "required": false, "defaultMatch": false, "canBeUsedToMatch": true },
+            { "id": "Priority", "displayName": "Priority", "required": false, "defaultMatch": false, "canBeUsedToMatch": true },
+            { "id": "Sales Angle", "displayName": "Sales Angle", "required": false, "defaultMatch": false, "canBeUsedToMatch": true },
+            { "id": "Recommended Next Step", "displayName": "Recommended Next Step", "required": false, "defaultMatch": false, "canBeUsedToMatch": true },
+            { "id": "Enriched At", "displayName": "Enriched At", "required": false, "defaultMatch": false, "canBeUsedToMatch": true },
+            { "id": "Email", "displayName": "Email", "required": false, "defaultMatch": true, "canBeUsedToMatch": true }
+          ]
+        },
+        "options": {}
+      },
+      "id": "sheets-update",
+      "name": "Update Sheet with AI Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1040, 60],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.priority }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-high-priority",
+      "name": "High Priority?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1280, 60]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#sales-alerts",
+          "mode": "name"
+        },
+        "text": "=:fire: *High Priority Lead Detected!*\n\n*Name:* {{ $json.lead_name }}\n*Company:* {{ $json.company }} ({{ $json.company_type }})\n*Email:* {{ $json.email }}\n*Industry:* {{ $json.industry }}\n*Priority:* {{ $json.priority.toUpperCase() }}\n\n*Sales Angle:* {{ $json.sales_angle }}\n\n*Recommended Next Step:* {{ $json.recommended_next_step }}\n\n_Enriched at {{ $json.enriched_at }}_",
+        "otherOptions": {
+          "unfurl_links": false
+        }
+      },
+      "id": "slack-high-priority",
+      "name": "Slack: Alert Sales Team",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [1520, -80],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-cred",
+          "name": "Slack"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://your-crm-api.com/api/v1/leads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "YOUR_CRM_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $json.lead_name }}\",\n  \"email\": \"{{ $json.email }}\",\n  \"company\": \"{{ $json.company }}\",\n  \"industry\": \"{{ $json.industry }}\",\n  \"company_type\": \"{{ $json.company_type }}\",\n  \"priority\": \"{{ $json.priority }}\",\n  \"sales_angle\": \"{{ $json.sales_angle }}\",\n  \"recommended_next_step\": \"{{ $json.recommended_next_step }}\",\n  \"source\": \"google_sheets_enrichment\",\n  \"enriched_at\": \"{{ $json.enriched_at }}\"\n}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "crm-api",
+      "name": "Push to CRM API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1520, 200]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#sales-alerts",
+          "mode": "name"
+        },
+        "text": "=:warning: *CRM Enrichment - Missing Required Fields*\n\nA new row was added to the CRM sheet but is missing required fields.\n\n*Row Data:*\n```{{ JSON.stringify($json, null, 2) }}```\n\nPlease update the row with at minimum: Name, Email, Company.",
+        "otherOptions": {}
+      },
+      "id": "slack-missing-fields",
+      "name": "Slack: Missing Fields Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [320, 280],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-cred",
+          "name": "Slack"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [1400, 560]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#workflow-errors",
+          "mode": "name"
+        },
+        "text": "=:red_circle: *Workflow Error: Google Sheets CRM Enrichment*\n\n*Node:* {{ $json.execution.lastNodeExecuted }}\n*Error:* {{ $json.execution.error.message }}\n*Execution ID:* {{ $json.execution.id }}\n*Time:* {{ new Date().toISOString() }}\n\n<https://your-n8n-instance.com/execution/{{ $json.execution.id }}|View Execution>",
+        "otherOptions": {}
+      },
+      "id": "slack-error",
+      "name": "Slack: Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [1640, 560],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-cred",
+          "name": "Slack"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "New CRM Lead": {
+      "main": [
+        [
+          {
+            "node": "Validate & Normalize Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate & Normalize Fields": {
+      "main": [
+        [
+          {
+            "node": "Has Required Fields?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Required Fields?": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: Classify Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack: Missing Fields Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: Classify Lead": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Update Sheet with AI Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Sheet with AI Data": {
+      "main": [
+        [
+          {
+            "node": "High Priority?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High Priority?": {
+      "main": [
+        [
+          {
+            "node": "Slack: Alert Sales Team",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Push to CRM API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Alert Sales Team": {
+      "main": [
+        [
+          {
+            "node": "Push to CRM API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Slack: Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "saveExecutionProgress": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "timezone": "America/New_York"
+  },
+  "staticData": null,
+  "tags": ["crm", "google-sheets", "openai", "sales", "enrichment"],
+  "triggerCount": 1,
+  "updatedAt": "2026-05-14T00:00:00.000Z",
+  "versionId": "05-crm-enrichment-v1",
+  "active": false,
+  "id": "workflow-05"
+}

@@ -1,0 +1,23 @@
+# Environment variables (contains secrets)
+.env
+
+# n8n data
+n8n_data/
+.n8n/
+
+# Node modules
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+
+# Logs
+*.log

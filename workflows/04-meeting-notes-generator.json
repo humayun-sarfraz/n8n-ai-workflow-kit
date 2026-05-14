@@ -1,0 +1,686 @@
+{
+  "name": "Meeting Notes Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Meeting Notes Generator\n\nThis workflow:\n1. Receives meeting transcript via Webhook (or Manual Trigger for testing)\n2. Sends to OpenAI to extract structured notes\n3. Formats the output\n4. Optionally waits for human review before publishing\n5. Creates a Notion page with full notes\n6. Posts a Slack summary to the team\n7. Logs action items to Google Sheets\n8. Error handling with Slack alert\n\n**AI Extracts:**\n- `meeting_summary` — 3-5 sentence overview\n- `key_decisions` — array of decisions made\n- `action_items` — array of `{task, owner, deadline}`\n- `risks_or_blockers` — array of identified risks\n\n**Setup required:**\n- OpenAI API credential\n- Notion credential + Database ID\n- Slack credential\n- Google Sheets credential\n\n**Payload expected:**\n```json\n{\n  \"meeting_title\": \"Q2 Planning Session\",\n  \"meeting_date\": \"2025-01-15\",\n  \"attendees\": [\"Alice\", \"Bob\", \"Carol\"],\n  \"duration_minutes\": 60,\n  \"transcript\": \"Alice: Let's start with Q2 goals...\",\n  \"require_review\": true\n}\n```",
+        "height": 580,
+        "width": 440,
+        "color": 5
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000001",
+      "name": "Sticky Note - Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, -480]
+    },
+    {
+      "parameters": {
+        "content": "## Human Review Gate\n\nIf `require_review: true` in the payload, the workflow pauses here.\n\nA reviewer can:\n- Approve → notes are published to Notion + Slack\n- Reject → workflow stops, no publishing\n\nThe wait node times out after **24 hours** if no response is received.\n\n**To approve via API:**\n```bash\nPOST /webhook/approve-meeting-notes\n{ \"approved\": true }\n```",
+        "height": 280,
+        "width": 360,
+        "color": 4
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000002",
+      "name": "Sticky Note - Review Gate",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1480, -480]
+    },
+    {
+      "parameters": {
+        "content": "## OpenAI Output Schema\n\n```json\n{\n  \"meeting_summary\": \"string (3-5 sentences)\",\n  \"key_decisions\": [\"string\", ...],\n  \"action_items\": [\n    {\n      \"task\": \"string\",\n      \"owner\": \"string\",\n      \"deadline\": \"YYYY-MM-DD or 'TBD'\"\n    }\n  ],\n  \"risks_or_blockers\": [\"string\", ...],\n  \"meeting_type\": \"planning|standup|review|retrospective|other\",\n  \"follow_up_required\": true|false\n}\n```",
+        "height": 300,
+        "width": 360,
+        "color": 3
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000003",
+      "name": "Sticky Note - AI Schema",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [700, -480]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "meeting-notes",
+        "authentication": "none",
+        "responseMode": "lastNode",
+        "options": {
+          "ignoreBots": false,
+          "rawBody": false
+        }
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000004",
+      "name": "Webhook - Receive Meeting Data",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 180],
+      "webhookId": "meeting-notes-webhook-001"
+    },
+    {
+      "parameters": {},
+      "id": "e4d5f6a7-0004-4000-8000-000000000005",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 340]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0.2,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an AI automation assistant inside a business workflow. Use only the provided input. Do not invent details. If information is missing, return 'unknown' or 'not mentioned'. Always return valid JSON matching the requested schema.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"You are a professional meeting notes AI. Analyze the meeting transcript and metadata below, then return a JSON object with exactly these fields:\\n\\n- meeting_summary: string, a 3-5 sentence executive summary of what was discussed and decided\\n- key_decisions: array of strings, each describing a concrete decision made during the meeting (empty array if none)\\n- action_items: array of objects, each with: task (string describing what needs to be done), owner (string, name of the person responsible, or 'TBD' if unassigned), deadline (string in YYYY-MM-DD format or 'TBD' if not specified)\\n- risks_or_blockers: array of strings, each describing a risk, blocker, or concern raised (empty array if none)\\n- meeting_type: string, one of: 'planning', 'standup', 'review', 'retrospective', 'brainstorm', 'decision', 'other'\\n- follow_up_required: boolean, true if a follow-up meeting or check-in was mentioned or implied\\n\\nMeeting Metadata:\\nTitle: {{ $json.body?.meeting_title || $json.meeting_title || 'Untitled Meeting' }}\\nDate: {{ $json.body?.meeting_date || $json.meeting_date || $now.toFormat('yyyy-MM-dd') }}\\nAttendees: {{ ($json.body?.attendees || $json.attendees || []).join(', ') }}\\nDuration: {{ $json.body?.duration_minutes || $json.duration_minutes || 'unknown' }} minutes\\n\\nTranscript:\\n{{ $json.body?.transcript || $json.transcript || 'No transcript provided.' }}\"\n    }\n  ]\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000006",
+      "name": "OpenAI - Generate Meeting Notes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [540, 240],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openai-header-auth",
+          "name": "OpenAI API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fmt-001",
+              "name": "meeting_title",
+              "value": "={{ $('Webhook - Receive Meeting Data').item?.json?.body?.meeting_title || $('Webhook - Receive Meeting Data').item?.json?.meeting_title || $('Manual Trigger').item?.json?.meeting_title || 'Untitled Meeting' }}",
+              "type": "string"
+            },
+            {
+              "id": "fmt-002",
+              "name": "meeting_date",
+              "value": "={{ $('Webhook - Receive Meeting Data').item?.json?.body?.meeting_date || $('Webhook - Receive Meeting Data').item?.json?.meeting_date || $('Manual Trigger').item?.json?.meeting_date || $now.toFormat('yyyy-MM-dd') }}",
+              "type": "string"
+            },
+            {
+              "id": "fmt-003",
+              "name": "attendees",
+              "value": "={{ $('Webhook - Receive Meeting Data').item?.json?.body?.attendees || $('Webhook - Receive Meeting Data').item?.json?.attendees || $('Manual Trigger').item?.json?.attendees || [] }}",
+              "type": "array"
+            },
+            {
+              "id": "fmt-004",
+              "name": "duration_minutes",
+              "value": "={{ $('Webhook - Receive Meeting Data').item?.json?.body?.duration_minutes || $('Webhook - Receive Meeting Data').item?.json?.duration_minutes || $('Manual Trigger').item?.json?.duration_minutes || 0 }}",
+              "type": "number"
+            },
+            {
+              "id": "fmt-005",
+              "name": "require_review",
+              "value": "={{ $('Webhook - Receive Meeting Data').item?.json?.body?.require_review || $('Webhook - Receive Meeting Data').item?.json?.require_review || $('Manual Trigger').item?.json?.require_review || false }}",
+              "type": "boolean"
+            },
+            {
+              "id": "fmt-006",
+              "name": "meeting_summary",
+              "value": "={{ JSON.parse($json.choices[0].message.content).meeting_summary }}",
+              "type": "string"
+            },
+            {
+              "id": "fmt-007",
+              "name": "key_decisions",
+              "value": "={{ JSON.parse($json.choices[0].message.content).key_decisions }}",
+              "type": "array"
+            },
+            {
+              "id": "fmt-008",
+              "name": "action_items",
+              "value": "={{ JSON.parse($json.choices[0].message.content).action_items }}",
+              "type": "array"
+            },
+            {
+              "id": "fmt-009",
+              "name": "risks_or_blockers",
+              "value": "={{ JSON.parse($json.choices[0].message.content).risks_or_blockers }}",
+              "type": "array"
+            },
+            {
+              "id": "fmt-010",
+              "name": "meeting_type",
+              "value": "={{ JSON.parse($json.choices[0].message.content).meeting_type }}",
+              "type": "string"
+            },
+            {
+              "id": "fmt-011",
+              "name": "follow_up_required",
+              "value": "={{ JSON.parse($json.choices[0].message.content).follow_up_required }}",
+              "type": "boolean"
+            },
+            {
+              "id": "fmt-012",
+              "name": "key_decisions_text",
+              "value": "={{ JSON.parse($json.choices[0].message.content).key_decisions.map((d, i) => `${i+1}. ${d}`).join('\\n') || 'None recorded.' }}",
+              "type": "string"
+            },
+            {
+              "id": "fmt-013",
+              "name": "action_items_text",
+              "value": "={{ JSON.parse($json.choices[0].message.content).action_items.map(a => `• ${a.task} — Owner: ${a.owner} | Due: ${a.deadline}`).join('\\n') || 'No action items.' }}",
+              "type": "string"
+            },
+            {
+              "id": "fmt-014",
+              "name": "risks_text",
+              "value": "={{ JSON.parse($json.choices[0].message.content).risks_or_blockers.map(r => `• ${r}`).join('\\n') || 'None identified.' }}",
+              "type": "string"
+            },
+            {
+              "id": "fmt-015",
+              "name": "processed_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000007",
+      "name": "Set - Format Notes",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [800, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-review",
+              "leftValue": "={{ $json.require_review }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000008",
+      "name": "IF - Human Review Required",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1060, 240]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {
+          "webhookSuffix": "approve-meeting-notes",
+          "responseCode": 200,
+          "responseData": "firstEntryJson",
+          "limitWaitTime": true,
+          "limitType": "afterTimeInterval",
+          "resumeAmount": 24,
+          "resumeUnit": "hours"
+        }
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000009",
+      "name": "Wait - Human Review",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1300, 120],
+      "webhookId": "meeting-approval-webhook-001"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-approved",
+              "leftValue": "={{ $json.body?.approved || $json.approved }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000010",
+      "name": "IF - Review Approved",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1540, 120]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#workflow-errors",
+          "mode": "name"
+        },
+        "text": "=:no_entry: *Meeting Notes Rejected*\n\n*Meeting:* {{ $('Set - Format Notes').item.json.meeting_title }}\n*Date:* {{ $('Set - Format Notes').item.json.meeting_date }}\n\nNotes were not published. Review and re-submit if needed.",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000011",
+      "name": "Slack - Notify Rejected",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1780, 240],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-oauth2-cred",
+          "name": "Slack OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "page",
+        "operation": "create",
+        "databaseId": {
+          "__rl": true,
+          "value": "YOUR_NOTION_DATABASE_ID_HERE",
+          "mode": "id"
+        },
+        "title": "={{ $('Set - Format Notes').item.json.meeting_title + ' — ' + $('Set - Format Notes').item.json.meeting_date }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Meeting Title",
+              "textValue": "={{ $('Set - Format Notes').item.json.meeting_title }}"
+            },
+            {
+              "key": "Date",
+              "dateValue": "={{ $('Set - Format Notes').item.json.meeting_date }}"
+            },
+            {
+              "key": "Attendees",
+              "textValue": "={{ $('Set - Format Notes').item.json.attendees.join(', ') }}"
+            },
+            {
+              "key": "Duration (min)",
+              "numberValue": "={{ $('Set - Format Notes').item.json.duration_minutes }}"
+            },
+            {
+              "key": "Meeting Type",
+              "selectValue": "={{ $('Set - Format Notes').item.json.meeting_type }}"
+            },
+            {
+              "key": "Follow-Up Required",
+              "checkboxValue": "={{ $('Set - Format Notes').item.json.follow_up_required }}"
+            },
+            {
+              "key": "Status",
+              "selectValue": "Published"
+            }
+          ]
+        },
+        "blockUi": {
+          "blockValues": [
+            {
+              "type": "heading_2",
+              "textContent": "Meeting Summary"
+            },
+            {
+              "type": "paragraph",
+              "textContent": "={{ $('Set - Format Notes').item.json.meeting_summary }}"
+            },
+            {
+              "type": "heading_2",
+              "textContent": "Key Decisions"
+            },
+            {
+              "type": "paragraph",
+              "textContent": "={{ $('Set - Format Notes').item.json.key_decisions_text }}"
+            },
+            {
+              "type": "heading_2",
+              "textContent": "Action Items"
+            },
+            {
+              "type": "paragraph",
+              "textContent": "={{ $('Set - Format Notes').item.json.action_items_text }}"
+            },
+            {
+              "type": "heading_2",
+              "textContent": "Risks & Blockers"
+            },
+            {
+              "type": "paragraph",
+              "textContent": "={{ $('Set - Format Notes').item.json.risks_text }}"
+            }
+          ]
+        }
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000012",
+      "name": "Notion - Create Meeting Page",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [1780, 0],
+      "credentials": {
+        "notionApi": {
+          "id": "notion-api-cred",
+          "name": "Notion API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#meeting-notes",
+          "mode": "name"
+        },
+        "text": "=:memo: *Meeting Notes Published: {{ $('Set - Format Notes').item.json.meeting_title }}*\n\n*Date:* {{ $('Set - Format Notes').item.json.meeting_date }} | *Duration:* {{ $('Set - Format Notes').item.json.duration_minutes }} min | *Type:* {{ $('Set - Format Notes').item.json.meeting_type }}\n*Attendees:* {{ $('Set - Format Notes').item.json.attendees.join(', ') }}\n\n*Summary:*\n{{ $('Set - Format Notes').item.json.meeting_summary }}\n\n*Key Decisions:*\n{{ $('Set - Format Notes').item.json.key_decisions_text }}\n\n*Action Items:*\n{{ $('Set - Format Notes').item.json.action_items_text }}\n\n*Risks/Blockers:*\n{{ $('Set - Format Notes').item.json.risks_text }}\n\n:follow_up_required: *Follow-up Required:* {{ $('Set - Format Notes').item.json.follow_up_required ? 'Yes' : 'No' }}\n\n:notion: Full notes in Notion: {{ $json.url || 'See Notion workspace' }}",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000013",
+      "name": "Slack - Post Meeting Summary",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [2040, 0],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-oauth2-cred",
+          "name": "Slack OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Action Items",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Meeting Title": "={{ $('Set - Format Notes').item.json.meeting_title }}",
+            "Meeting Date": "={{ $('Set - Format Notes').item.json.meeting_date }}",
+            "Task": "={{ $json.task }}",
+            "Owner": "={{ $json.owner }}",
+            "Deadline": "={{ $json.deadline }}",
+            "Status": "Open",
+            "Created At": "={{ $('Set - Format Notes').item.json.processed_at }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000014",
+      "name": "Google Sheets - Log Action Items",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2040, 160],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gsheets-oauth2-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "action_items",
+        "options": {}
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000015",
+      "name": "Split Out Action Items",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [1820, 160]
+    },
+    {
+      "parameters": {},
+      "id": "e4d5f6a7-0004-4000-8000-000000000016",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 560]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#workflow-errors",
+          "mode": "name"
+        },
+        "text": "=:x: *Workflow Error: Meeting Notes Generator*\n\n*Error:* {{ $json.execution.error.message }}\n*Node:* {{ $json.execution.lastNodeExecuted }}\n*Execution ID:* {{ $json.execution.id }}\n*Time:* {{ $now.toISO() }}\n\nCheck n8n dashboard for details.",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "e4d5f6a7-0004-4000-8000-000000000017",
+      "name": "Slack - Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [480, 560],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-oauth2-cred",
+          "name": "Slack OAuth2"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Receive Meeting Data": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Generate Meeting Notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Generate Meeting Notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Generate Meeting Notes": {
+      "main": [
+        [
+          {
+            "node": "Set - Format Notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Format Notes": {
+      "main": [
+        [
+          {
+            "node": "IF - Human Review Required",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Human Review Required": {
+      "main": [
+        [
+          {
+            "node": "Wait - Human Review",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notion - Create Meeting Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait - Human Review": {
+      "main": [
+        [
+          {
+            "node": "IF - Review Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Review Approved": {
+      "main": [
+        [
+          {
+            "node": "Notion - Create Meeting Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack - Notify Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notion - Create Meeting Page": {
+      "main": [
+        [
+          {
+            "node": "Slack - Post Meeting Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Post Meeting Summary": {
+      "main": [
+        [
+          {
+            "node": "Split Out Action Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out Action Items": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Log Action Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Slack - Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "saveExecutionProgress": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "timezone": "UTC"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z",
+      "id": "tag-meeting-ai",
+      "name": "AI Automation"
+    },
+    {
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z",
+      "id": "tag-productivity",
+      "name": "Productivity"
+    }
+  ],
+  "triggerCount": 2,
+  "updatedAt": "2025-01-01T00:00:00.000Z",
+  "versionId": "v1.0.0",
+  "active": false
+}

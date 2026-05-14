@@ -1,0 +1,717 @@
+{
+  "name": "AI Lead Qualification & Follow-Up",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## AI Lead Qualification & Follow-Up\n\nThis workflow:\n1. Receives lead data via Webhook\n2. Validates required fields\n3. Uses OpenAI to score (0-100) and classify the lead\n4. Routes: Hot (>=75) → Slack, Warm (>=50) → CRM, Cold → Nurture sheet\n5. Requires human approval before sending follow-up email\n6. Sends personalized follow-up via Gmail\n\n**Setup required:**\n- Webhook URL (auto-generated)\n- OpenAI API credential\n- Slack credential\n- CRM HTTP endpoint\n- Gmail OAuth2 credential\n- Google Sheets credential\n\n**Payload expected:**\n```json\n{\n  \"first_name\": \"Jane\",\n  \"last_name\": \"Doe\",\n  \"email\": \"jane@company.com\",\n  \"company\": \"Acme Corp\",\n  \"job_title\": \"CTO\",\n  \"industry\": \"SaaS\",\n  \"company_size\": \"50-200\",\n  \"source\": \"Website\",\n  \"message\": \"Interested in enterprise plan\",\n  \"budget\": \"$5000/month\",\n  \"timeline\": \"Q1 2025\"\n}\n```",
+        "height": 500,
+        "width": 420,
+        "color": 5
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000001",
+      "name": "Sticky Note - Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, -360]
+    },
+    {
+      "parameters": {
+        "content": "## AI Scoring Logic\n\nOpenAI scores leads 0-100 based on:\n- **Job Title / Seniority** (decision maker?)\n- **Company Size** (ICP fit?)\n- **Industry** (target vertical?)\n- **Budget** (affordable?)\n- **Timeline** (buying soon?)\n- **Message Intent** (high interest?)\n\n**Classification:**\n- 75-100 = `hot` → Immediate Slack + fast-track\n- 50-74 = `warm` → CRM entry + nurture\n- 0-49 = `cold` → Google Sheets nurture list",
+        "height": 340,
+        "width": 380,
+        "color": 3
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000002",
+      "name": "Sticky Note - Scoring",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [700, -360]
+    },
+    {
+      "parameters": {
+        "content": "## Human Approval Gate\n\nBefore sending any follow-up email, the workflow pauses and waits for a human to approve via the n8n UI or a webhook callback.\n\nThe approver reviews:\n- Lead score\n- AI-generated email draft\n- Lead classification\n\nApprove or reject within the n8n execution UI.",
+        "height": 240,
+        "width": 340,
+        "color": 4
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000003",
+      "name": "Sticky Note - Approval",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1600, -360]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-qualification",
+        "authentication": "none",
+        "responseMode": "responseNode",
+        "options": {
+          "ignoreBots": false,
+          "rawBody": false
+        }
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000004",
+      "name": "Webhook - Receive Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 160],
+      "webhookId": "lead-qual-webhook-001"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "val-001",
+              "name": "first_name",
+              "value": "={{ $json.body?.first_name || $json.first_name || 'Unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "val-002",
+              "name": "last_name",
+              "value": "={{ $json.body?.last_name || $json.last_name || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "val-003",
+              "name": "email",
+              "value": "={{ $json.body?.email || $json.email || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "val-004",
+              "name": "company",
+              "value": "={{ $json.body?.company || $json.company || 'not mentioned' }}",
+              "type": "string"
+            },
+            {
+              "id": "val-005",
+              "name": "job_title",
+              "value": "={{ $json.body?.job_title || $json.job_title || 'not mentioned' }}",
+              "type": "string"
+            },
+            {
+              "id": "val-006",
+              "name": "industry",
+              "value": "={{ $json.body?.industry || $json.industry || 'not mentioned' }}",
+              "type": "string"
+            },
+            {
+              "id": "val-007",
+              "name": "company_size",
+              "value": "={{ $json.body?.company_size || $json.company_size || 'not mentioned' }}",
+              "type": "string"
+            },
+            {
+              "id": "val-008",
+              "name": "source",
+              "value": "={{ $json.body?.source || $json.source || 'unknown' }}",
+              "type": "string"
+            },
+            {
+              "id": "val-009",
+              "name": "message",
+              "value": "={{ $json.body?.message || $json.message || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "val-010",
+              "name": "budget",
+              "value": "={{ $json.body?.budget || $json.budget || 'not mentioned' }}",
+              "type": "string"
+            },
+            {
+              "id": "val-011",
+              "name": "timeline",
+              "value": "={{ $json.body?.timeline || $json.timeline || 'not mentioned' }}",
+              "type": "string"
+            },
+            {
+              "id": "val-012",
+              "name": "received_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000005",
+      "name": "Set - Validate & Normalize Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [480, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0.3,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an AI automation assistant inside a business workflow. Use only the provided input. Do not invent details. If information is missing, return 'unknown' or 'not mentioned'. Always return valid JSON matching the requested schema.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"You are a B2B sales qualification AI. Analyze this lead and return a JSON object with:\\n\\n- score: integer 0-100 (higher = better qualified)\\n- classification: string, one of 'hot', 'warm', or 'cold'\\n- reasoning: string explaining the score in 1-2 sentences\\n- strengths: array of up to 3 strings identifying positive signals\\n- concerns: array of up to 3 strings identifying risk factors or missing info\\n- follow_up_email: object with fields: subject (string), body (string, use \\\\n for newlines, personalized, professional, under 200 words)\\n\\nScoring criteria:\\n- Job seniority and decision-making authority: up to 25 points\\n- Company size alignment with ICP: up to 20 points\\n- Industry fit: up to 15 points\\n- Budget clarity and adequacy: up to 20 points\\n- Timeline urgency: up to 10 points\\n- Message intent and engagement level: up to 10 points\\n\\nLead Data:\\nName: {{ $json.first_name }} {{ $json.last_name }}\\nEmail: {{ $json.email }}\\nCompany: {{ $json.company }}\\nJob Title: {{ $json.job_title }}\\nIndustry: {{ $json.industry }}\\nCompany Size: {{ $json.company_size }}\\nLead Source: {{ $json.source }}\\nMessage: {{ $json.message }}\\nBudget: {{ $json.budget }}\\nTimeline: {{ $json.timeline }}\"\n    }\n  ]\n}",
+        "options": {
+          "timeout": 45000
+        }
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000006",
+      "name": "OpenAI - Score & Generate Follow-Up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 160],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openai-header-auth",
+          "name": "OpenAI API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "parse-001",
+              "name": "lead_score",
+              "value": "={{ JSON.parse($json.choices[0].message.content).score }}",
+              "type": "number"
+            },
+            {
+              "id": "parse-002",
+              "name": "lead_classification",
+              "value": "={{ JSON.parse($json.choices[0].message.content).classification }}",
+              "type": "string"
+            },
+            {
+              "id": "parse-003",
+              "name": "reasoning",
+              "value": "={{ JSON.parse($json.choices[0].message.content).reasoning }}",
+              "type": "string"
+            },
+            {
+              "id": "parse-004",
+              "name": "strengths",
+              "value": "={{ JSON.parse($json.choices[0].message.content).strengths }}",
+              "type": "array"
+            },
+            {
+              "id": "parse-005",
+              "name": "concerns",
+              "value": "={{ JSON.parse($json.choices[0].message.content).concerns }}",
+              "type": "array"
+            },
+            {
+              "id": "parse-006",
+              "name": "follow_up_subject",
+              "value": "={{ JSON.parse($json.choices[0].message.content).follow_up_email.subject }}",
+              "type": "string"
+            },
+            {
+              "id": "parse-007",
+              "name": "follow_up_body",
+              "value": "={{ JSON.parse($json.choices[0].message.content).follow_up_email.body }}",
+              "type": "string"
+            },
+            {
+              "id": "parse-008",
+              "name": "first_name",
+              "value": "={{ $('Set - Validate & Normalize Fields').item.json.first_name }}",
+              "type": "string"
+            },
+            {
+              "id": "parse-009",
+              "name": "email",
+              "value": "={{ $('Set - Validate & Normalize Fields').item.json.email }}",
+              "type": "string"
+            },
+            {
+              "id": "parse-010",
+              "name": "company",
+              "value": "={{ $('Set - Validate & Normalize Fields').item.json.company }}",
+              "type": "string"
+            },
+            {
+              "id": "parse-011",
+              "name": "received_at",
+              "value": "={{ $('Set - Validate & Normalize Fields').item.json.received_at }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000007",
+      "name": "Set - Parse AI Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [960, 160]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-hot",
+              "leftValue": "={{ $json.lead_score }}",
+              "rightValue": 75,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000008",
+      "name": "IF - Score >= 75 (Hot)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1200, 160]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#hot-leads",
+          "mode": "name"
+        },
+        "text": "=:fire: *HOT LEAD ALERT* :fire:\n\n*Score:* {{ $json.lead_score }}/100 | *Classification:* {{ $json.lead_classification.toUpperCase() }}\n\n*Name:* {{ $json.first_name }}\n*Company:* {{ $json.company }}\n*Email:* {{ $json.email }}\n\n*AI Reasoning:* {{ $json.reasoning }}\n\n*Strengths:*\n{{ $json.strengths.map(s => `• ${s}`).join('\\n') }}\n\n*Concerns:*\n{{ $json.concerns.map(c => `• ${c}`).join('\\n') }}\n\n:point_right: Approve follow-up email in n8n before it sends.",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000009",
+      "name": "Slack - Notify Hot Lead",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1440, 60],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-oauth2-cred",
+          "name": "Slack OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-warm",
+              "leftValue": "={{ $json.lead_score }}",
+              "rightValue": 50,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000010",
+      "name": "IF - Score >= 50 (Warm)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1440, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://your-crm.example.com/api/leads",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"first_name\": \"{{ $json.first_name }}\",\n  \"email\": \"{{ $json.email }}\",\n  \"company\": \"{{ $json.company }}\",\n  \"score\": {{ $json.lead_score }},\n  \"classification\": \"{{ $json.lead_classification }}\",\n  \"source\": \"n8n-workflow\",\n  \"notes\": \"{{ $json.reasoning }}\",\n  \"created_at\": \"{{ $json.received_at }}\"\n}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000011",
+      "name": "HTTP - Add to CRM (Warm)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1680, 220],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "crm-api-key",
+          "name": "CRM API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Nurture List",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Timestamp": "={{ $now.toISO() }}",
+            "First Name": "={{ $json.first_name }}",
+            "Email": "={{ $json.email }}",
+            "Company": "={{ $json.company }}",
+            "Score": "={{ $json.lead_score }}",
+            "Classification": "={{ $json.lead_classification }}",
+            "Reasoning": "={{ $json.reasoning }}",
+            "Follow-Up Subject": "={{ $json.follow_up_subject }}"
+          },
+          "matchingColumns": ["Email"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000012",
+      "name": "Google Sheets - Add to Nurture",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1680, 400],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "gsheets-oauth2-cred",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {
+          "webhookSuffix": "approve-lead-followup",
+          "responseCode": 200,
+          "responseData": "firstEntryJson",
+          "limitWaitTime": true,
+          "limitType": "afterTimeInterval",
+          "resumeAmount": 24,
+          "resumeUnit": "hours"
+        }
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000013",
+      "name": "Wait - Human Approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1920, 60],
+      "webhookId": "lead-approval-webhook-001"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-approved",
+              "leftValue": "={{ $json.body?.approved || $json.approved }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000014",
+      "name": "IF - Approved",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2160, 60]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Set - Parse AI Response').item.json.email }}",
+        "subject": "={{ $('Set - Parse AI Response').item.json.follow_up_subject }}",
+        "emailType": "text",
+        "message": "={{ $('Set - Parse AI Response').item.json.follow_up_body }}",
+        "options": {}
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000015",
+      "name": "Gmail - Send Follow-Up Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [2400, 0],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth2-cred",
+          "name": "Gmail OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#hot-leads",
+          "mode": "name"
+        },
+        "text": "=:x: *Follow-Up Rejected* — Lead not approved for follow-up.\n*Lead:* {{ $('Set - Parse AI Response').item.json.first_name }} | *Company:* {{ $('Set - Parse AI Response').item.json.company }}\nNo email sent.",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000016",
+      "name": "Slack - Notify Rejected",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [2400, 140],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-oauth2-cred",
+          "name": "Slack OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "c2b3d4e5-0002-4000-8000-000000000017",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 500]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#workflow-errors",
+          "mode": "name"
+        },
+        "text": "=:x: *Workflow Error: AI Lead Qualification*\n\n*Error:* {{ $json.execution.error.message }}\n*Node:* {{ $json.execution.lastNodeExecuted }}\n*Execution ID:* {{ $json.execution.id }}\n*Time:* {{ $now.toISO() }}",
+        "otherOptions": {
+          "mrkdwn": true
+        }
+      },
+      "id": "c2b3d4e5-0002-4000-8000-000000000018",
+      "name": "Slack - Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [480, 500],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-oauth2-cred",
+          "name": "Slack OAuth2"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Receive Lead": {
+      "main": [
+        [
+          {
+            "node": "Set - Validate & Normalize Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Validate & Normalize Fields": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Score & Generate Follow-Up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Score & Generate Follow-Up": {
+      "main": [
+        [
+          {
+            "node": "Set - Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set - Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "IF - Score >= 75 (Hot)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Score >= 75 (Hot)": {
+      "main": [
+        [
+          {
+            "node": "Slack - Notify Hot Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF - Score >= 50 (Warm)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack - Notify Hot Lead": {
+      "main": [
+        [
+          {
+            "node": "Wait - Human Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Score >= 50 (Warm)": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Add to CRM (Warm)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets - Add to Nurture",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait - Human Approval": {
+      "main": [
+        [
+          {
+            "node": "IF - Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Approved": {
+      "main": [
+        [
+          {
+            "node": "Gmail - Send Follow-Up Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack - Notify Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Slack - Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "saveExecutionProgress": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "timezone": "UTC"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z",
+      "id": "tag-lead-ai",
+      "name": "AI Automation"
+    },
+    {
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z",
+      "id": "tag-sales",
+      "name": "Sales"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2025-01-01T00:00:00.000Z",
+  "versionId": "v1.0.0",
+  "active": false
+}

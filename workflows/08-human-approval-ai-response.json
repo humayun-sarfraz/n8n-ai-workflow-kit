@@ -1,0 +1,823 @@
+{
+  "name": "Human Approval AI Response",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Human Approval AI Response\n\n**Purpose:** A reusable human-in-the-loop pattern. Incoming messages are drafted by AI, sent to a human for review, then dispatched (or discarded) based on their decision.\n\n**Approval Flow:**\n1. Message arrives via Webhook\n2. OpenAI drafts a response + confidence score\n3. Draft is posted to Slack with Approve / Reject / Edit buttons\n4. Workflow pauses, waiting for a human decision\n5. On resume: route by decision type\n   - **Approved** → Send via Gmail, log to Sheets\n   - **Rejected** → Log rejection, notify requester\n   - **Edited** → Send edited version via Gmail, log to Sheets\n\n**How to adapt this workflow:**\n- Swap the Gmail send for any delivery channel\n- Swap the Webhook trigger for Email, Slack, or Form trigger\n- Adjust confidence threshold for auto-approval\n- Connect to your ticketing system via the log step",
+        "height": 460,
+        "width": 420,
+        "color": 5
+      },
+      "id": "sticky-intro",
+      "name": "Intro Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-520, -280]
+    },
+    {
+      "parameters": {
+        "content": "### Approval Mechanism\nThe Wait node generates a unique resume URL per execution. This URL is posted in Slack. Approvers POST to this URL with:\n```json\n{\n  \"decision\": \"approved\" | \"rejected\" | \"edited\",\n  \"edited_response\": \"...\" // only for edited\n  \"rejection_reason\": \"...\" // only for rejected\n}\n```\nThe Wait node has a 24-hour timeout — after that the request auto-expires and is logged as timed_out.",
+        "height": 280,
+        "width": 380,
+        "color": 4
+      },
+      "id": "sticky-approval",
+      "name": "Approval Mechanism Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [860, -280]
+    },
+    {
+      "parameters": {
+        "content": "### AI Confidence Levels\n- **high** confidence → Slack message shows green, suggests quick approval\n- **medium** → Yellow, recommends review\n- **low** → Red, strong recommendation to edit before sending\n\nIf `needs_human_review` is false AND confidence is high, you can add an IF node before the Wait to auto-approve. Not recommended for customer-facing responses.",
+        "height": 220,
+        "width": 360,
+        "color": 7
+      },
+      "id": "sticky-confidence",
+      "name": "Confidence Levels Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1300, -280]
+    },
+    {
+      "parameters": {
+        "content": "### Switch Routing\nThe Switch node routes on `$json.body.decision`:\n- Route 0: `approved` → Gmail send → Sheets log\n- Route 1: `rejected` → Sheets log (no send)\n- Route 2: `edited` → Gmail send edited → Sheets log\n- Route 3 (fallback): `timed_out` → Sheets log as expired",
+        "height": 200,
+        "width": 320,
+        "color": 6
+      },
+      "id": "sticky-switch",
+      "name": "Switch Routing Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1720, -280]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-response-request",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Receive Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-160, 60],
+      "webhookId": "ai-response-request-webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "i1",
+              "name": "request_id",
+              "value": "={{ 'REQ-' + Date.now() + '-' + Math.random().toString(36).substr(2, 6).toUpperCase() }}",
+              "type": "string"
+            },
+            {
+              "id": "i2",
+              "name": "original_message",
+              "value": "={{ $json.body.message || $json.body.content || $json.body.text || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "i3",
+              "name": "sender_name",
+              "value": "={{ $json.body.sender_name || $json.body.from_name || 'Unknown Sender' }}",
+              "type": "string"
+            },
+            {
+              "id": "i4",
+              "name": "sender_email",
+              "value": "={{ $json.body.sender_email || $json.body.from_email || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "i5",
+              "name": "context",
+              "value": "={{ $json.body.context || $json.body.subject || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "i6",
+              "name": "priority",
+              "value": "={{ $json.body.priority || 'normal' }}",
+              "type": "string"
+            },
+            {
+              "id": "i7",
+              "name": "received_at",
+              "value": "={{ new Date().toISOString() }}",
+              "type": "string"
+            },
+            {
+              "id": "i8",
+              "name": "channel",
+              "value": "={{ $json.body.channel || 'email' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-normalize",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [80, 60]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o\",\n  \"temperature\": 0.5,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a professional communications assistant. Draft a response to an incoming message and assess whether a human should review it before sending.\\n\\nReturn a JSON object with exactly these fields:\\n- draft_response (string): A professional, complete response to the message. Match the tone of the original (formal/casual). Do not include placeholders — write the actual response.\\n- confidence (string): 'high', 'medium', or 'low' — your confidence the draft is ready to send without edits\\n- needs_human_review (boolean): true if the message is sensitive, ambiguous, complaints, legal/financial, or if you are unsure\\n- reason_for_review (string): Explanation of why review is needed. Empty string if needs_human_review is false.\\n- tone (string): The tone of the draft — 'formal', 'friendly', 'empathetic', 'technical', etc.\\n- suggested_subject (string): If this is an email response, suggest an appropriate subject line\\n- key_points_addressed (array of strings): List of the main points from the original message that the draft addresses\\n\\nReturn ONLY valid JSON.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Draft a response to this incoming message:\\n\\nSender: {{ $json.sender_name }} <{{ $json.sender_email }}>\\nChannel: {{ $json.channel }}\\nContext/Subject: {{ $json.context }}\\nPriority: {{ $json.priority }}\\n\\nMessage:\\n{{ $json.original_message }}\"\n    }\n  ]\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "openai-draft",
+      "name": "OpenAI: Draft Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [320, 60],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openai-api-key",
+          "name": "OpenAI API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d1",
+              "name": "draft_response",
+              "value": "={{ JSON.parse($json.choices[0].message.content).draft_response }}",
+              "type": "string"
+            },
+            {
+              "id": "d2",
+              "name": "confidence",
+              "value": "={{ JSON.parse($json.choices[0].message.content).confidence || 'medium' }}",
+              "type": "string"
+            },
+            {
+              "id": "d3",
+              "name": "needs_human_review",
+              "value": "={{ JSON.parse($json.choices[0].message.content).needs_human_review !== false }}",
+              "type": "boolean"
+            },
+            {
+              "id": "d4",
+              "name": "reason_for_review",
+              "value": "={{ JSON.parse($json.choices[0].message.content).reason_for_review || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "d5",
+              "name": "tone",
+              "value": "={{ JSON.parse($json.choices[0].message.content).tone || 'professional' }}",
+              "type": "string"
+            },
+            {
+              "id": "d6",
+              "name": "suggested_subject",
+              "value": "={{ JSON.parse($json.choices[0].message.content).suggested_subject || 'Re: Your Message' }}",
+              "type": "string"
+            },
+            {
+              "id": "d7",
+              "name": "key_points_addressed",
+              "value": "={{ JSON.parse($json.choices[0].message.content).key_points_addressed || [] }}",
+              "type": "array"
+            },
+            {
+              "id": "d8",
+              "name": "request_id",
+              "value": "={{ $('Normalize Input').item.json.request_id }}",
+              "type": "string"
+            },
+            {
+              "id": "d9",
+              "name": "original_message",
+              "value": "={{ $('Normalize Input').item.json.original_message }}",
+              "type": "string"
+            },
+            {
+              "id": "d10",
+              "name": "sender_name",
+              "value": "={{ $('Normalize Input').item.json.sender_name }}",
+              "type": "string"
+            },
+            {
+              "id": "d11",
+              "name": "sender_email",
+              "value": "={{ $('Normalize Input').item.json.sender_email }}",
+              "type": "string"
+            },
+            {
+              "id": "d12",
+              "name": "context",
+              "value": "={{ $('Normalize Input').item.json.context }}",
+              "type": "string"
+            },
+            {
+              "id": "d13",
+              "name": "received_at",
+              "value": "={{ $('Normalize Input').item.json.received_at }}",
+              "type": "string"
+            },
+            {
+              "id": "d14",
+              "name": "confidence_emoji",
+              "value": "={{ JSON.parse($json.choices[0].message.content).confidence === 'high' ? ':large_green_circle:' : JSON.parse($json.choices[0].message.content).confidence === 'medium' ? ':large_yellow_circle:' : ':red_circle:' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-draft",
+      "name": "Parse AI Draft",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [560, 60]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#response-approvals",
+          "mode": "name"
+        },
+        "text": "={{ $json.confidence_emoji }} *New Response Awaiting Approval*\n\n*Request ID:* `{{ $json.request_id }}`\n*From:* {{ $json.sender_name }} <{{ $json.sender_email }}>\n*Context:* {{ $json.context }}\n*AI Confidence:* {{ $json.confidence.toUpperCase() }}\n*Needs Review:* {{ $json.needs_human_review ? 'Yes' : 'No' }}\n{{ $json.reason_for_review ? '*Review Reason:* ' + $json.reason_for_review : '' }}\n\n---\n:speech_balloon: *Original Message:*\n> {{ $json.original_message.replace(/\\n/g, '\\n> ') }}\n\n---\n:pencil: *AI Draft Response:*\n```{{ $json.draft_response }}```\n\n*Tone:* {{ $json.tone }} | *Suggested Subject:* {{ $json.suggested_subject }}\n\n---\n:point_right: *To respond, POST to the approval webhook:*\n`{{ $execution.resumeUrl }}`\n\nPayload options:\n• `{\"decision\": \"approved\"}` — send as-is\n• `{\"decision\": \"rejected\", \"rejection_reason\": \"your reason\"}` — discard\n• `{\"decision\": \"edited\", \"edited_response\": \"your edited text\"}` — send your version\n\n_This request expires in 24 hours._",
+        "otherOptions": {
+          "unfurl_links": false
+        }
+      },
+      "id": "slack-approval-request",
+      "name": "Slack: Send for Approval",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [800, 60],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-cred",
+          "name": "Slack"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {
+          "webhookSuffix": "=approval-{{ $('Parse AI Draft').item.json.request_id }}",
+          "responseData": "firstEntryJson",
+          "limitWaitTime": true,
+          "limitType": "afterTimeInterval",
+          "resumeAmount": 24,
+          "resumeUnit": "hours"
+        }
+      },
+      "id": "wait-approval",
+      "name": "Wait: Human Decision",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1040, 60],
+      "webhookId": "human-approval-wait"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.decision }}",
+                    "rightValue": "approved",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "outputIndex": 0
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.decision }}",
+                    "rightValue": "rejected",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "outputIndex": 1
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.decision }}",
+                    "rightValue": "edited",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "outputIndex": 2
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": 3
+        }
+      },
+      "id": "switch-decision",
+      "name": "Route by Decision",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [1280, 60]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendHtml",
+        "toList": [
+          "={{ $('Parse AI Draft').item.json.sender_email }}"
+        ],
+        "subject": "={{ $('Parse AI Draft').item.json.suggested_subject }}",
+        "message": "=<html><body style=\"font-family: Arial, sans-serif; line-height: 1.6;\">\n{{ $('Parse AI Draft').item.json.draft_response.replace(/\\n/g, '<br>') }}\n</body></html>",
+        "options": {}
+      },
+      "id": "gmail-send-approved",
+      "name": "Gmail: Send Approved Response",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1520, -160],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-cred",
+          "name": "Gmail"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendHtml",
+        "toList": [
+          "={{ $('Parse AI Draft').item.json.sender_email }}"
+        ],
+        "subject": "={{ $('Parse AI Draft').item.json.suggested_subject }}",
+        "message": "=<html><body style=\"font-family: Arial, sans-serif; line-height: 1.6;\">\n{{ ($json.body.edited_response || $('Parse AI Draft').item.json.draft_response).replace(/\\n/g, '<br>') }}\n</body></html>",
+        "options": {}
+      },
+      "id": "gmail-send-edited",
+      "name": "Gmail: Send Edited Response",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1520, 60],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-cred",
+          "name": "Slack"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_APPROVALS_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Approval Log",
+          "mode": "list",
+          "cachedResultName": "Approval Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Request ID": "={{ $('Parse AI Draft').item.json.request_id }}",
+            "Sender Name": "={{ $('Parse AI Draft').item.json.sender_name }}",
+            "Sender Email": "={{ $('Parse AI Draft').item.json.sender_email }}",
+            "Context": "={{ $('Parse AI Draft').item.json.context }}",
+            "Original Message": "={{ $('Parse AI Draft').item.json.original_message }}",
+            "AI Draft": "={{ $('Parse AI Draft').item.json.draft_response }}",
+            "AI Confidence": "={{ $('Parse AI Draft').item.json.confidence }}",
+            "Needs Review": "={{ $('Parse AI Draft').item.json.needs_human_review }}",
+            "Review Reason": "={{ $('Parse AI Draft').item.json.reason_for_review }}",
+            "Decision": "=approved",
+            "Final Response Sent": "={{ $('Parse AI Draft').item.json.draft_response }}",
+            "Decided At": "={{ new Date().toISOString() }}",
+            "Received At": "={{ $('Parse AI Draft').item.json.received_at }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sheets-log-approved",
+      "name": "Sheets: Log Approved",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1760, -160],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_APPROVALS_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Approval Log",
+          "mode": "list",
+          "cachedResultName": "Approval Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Request ID": "={{ $('Parse AI Draft').item.json.request_id }}",
+            "Sender Name": "={{ $('Parse AI Draft').item.json.sender_name }}",
+            "Sender Email": "={{ $('Parse AI Draft').item.json.sender_email }}",
+            "Context": "={{ $('Parse AI Draft').item.json.context }}",
+            "Original Message": "={{ $('Parse AI Draft').item.json.original_message }}",
+            "AI Draft": "={{ $('Parse AI Draft').item.json.draft_response }}",
+            "AI Confidence": "={{ $('Parse AI Draft').item.json.confidence }}",
+            "Needs Review": "={{ $('Parse AI Draft').item.json.needs_human_review }}",
+            "Review Reason": "={{ $('Parse AI Draft').item.json.reason_for_review }}",
+            "Decision": "=rejected",
+            "Rejection Reason": "={{ $json.body.rejection_reason || 'Not specified' }}",
+            "Final Response Sent": "=N/A - Rejected",
+            "Decided At": "={{ new Date().toISOString() }}",
+            "Received At": "={{ $('Parse AI Draft').item.json.received_at }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sheets-log-rejected",
+      "name": "Sheets: Log Rejected",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1520, 280],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_APPROVALS_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Approval Log",
+          "mode": "list",
+          "cachedResultName": "Approval Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Request ID": "={{ $('Parse AI Draft').item.json.request_id }}",
+            "Sender Name": "={{ $('Parse AI Draft').item.json.sender_name }}",
+            "Sender Email": "={{ $('Parse AI Draft').item.json.sender_email }}",
+            "Context": "={{ $('Parse AI Draft').item.json.context }}",
+            "Original Message": "={{ $('Parse AI Draft').item.json.original_message }}",
+            "AI Draft": "={{ $('Parse AI Draft').item.json.draft_response }}",
+            "AI Confidence": "={{ $('Parse AI Draft').item.json.confidence }}",
+            "Needs Review": "={{ $('Parse AI Draft').item.json.needs_human_review }}",
+            "Review Reason": "={{ $('Parse AI Draft').item.json.reason_for_review }}",
+            "Decision": "=edited",
+            "Final Response Sent": "={{ $json.body.edited_response }}",
+            "Decided At": "={{ new Date().toISOString() }}",
+            "Received At": "={{ $('Parse AI Draft').item.json.received_at }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sheets-log-edited",
+      "name": "Sheets: Log Edited",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1760, 60],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_APPROVALS_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Approval Log",
+          "mode": "list",
+          "cachedResultName": "Approval Log"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Request ID": "={{ $('Parse AI Draft').item.json.request_id }}",
+            "Sender Name": "={{ $('Parse AI Draft').item.json.sender_name }}",
+            "Sender Email": "={{ $('Parse AI Draft').item.json.sender_email }}",
+            "Context": "={{ $('Parse AI Draft').item.json.context }}",
+            "Original Message": "={{ $('Parse AI Draft').item.json.original_message }}",
+            "AI Draft": "={{ $('Parse AI Draft').item.json.draft_response }}",
+            "AI Confidence": "={{ $('Parse AI Draft').item.json.confidence }}",
+            "Decision": "=timed_out",
+            "Final Response Sent": "=N/A - Timed Out (24h)",
+            "Decided At": "={{ new Date().toISOString() }}",
+            "Received At": "={{ $('Parse AI Draft').item.json.received_at }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sheets-log-timeout",
+      "name": "Sheets: Log Timed Out",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1520, 460],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, message: 'Request received. AI is drafting a response.', request_id: $('Normalize Input').item.json.request_id }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "webhook-response",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [320, 280]
+    },
+    {
+      "parameters": {},
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [1760, 540]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#workflow-errors",
+          "mode": "name"
+        },
+        "text": "=:red_circle: *Workflow Error: Human Approval AI Response*\n\n*Node:* {{ $json.execution.lastNodeExecuted }}\n*Error:* {{ $json.execution.error.message }}\n*Execution ID:* {{ $json.execution.id }}\n*Time:* {{ new Date().toISOString() }}\n\nThe request may need to be manually processed. Check execution logs for details.",
+        "otherOptions": {}
+      },
+      "id": "slack-error",
+      "name": "Slack: Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [2000, 540],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-cred",
+          "name": "Slack"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Receive Request": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: Draft Response",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: Draft Response": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Draft": {
+      "main": [
+        [
+          {
+            "node": "Slack: Send for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Send for Approval": {
+      "main": [
+        [
+          {
+            "node": "Wait: Human Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait: Human Decision": {
+      "main": [
+        [
+          {
+            "node": "Route by Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Decision": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Send Approved Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sheets: Log Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gmail: Send Edited Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Sheets: Log Timed Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Send Approved Response": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Log Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Send Edited Response": {
+      "main": [
+        [
+          {
+            "node": "Sheets: Log Edited",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Slack: Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "saveExecutionProgress": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "timezone": "America/New_York"
+  },
+  "staticData": null,
+  "tags": ["human-in-the-loop", "approval", "openai", "gmail", "slack", "google-sheets", "reusable-pattern"],
+  "triggerCount": 1,
+  "updatedAt": "2026-05-14T00:00:00.000Z",
+  "versionId": "08-human-approval-v1",
+  "active": false,
+  "id": "workflow-08"
+}

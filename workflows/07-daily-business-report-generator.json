@@ -1,0 +1,651 @@
+{
+  "name": "Daily Business Report Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Daily Business Report Generator\n\n**Purpose:** Runs every morning at 9 AM, pulls data from Google Sheets and CRM, generates an AI-written executive report, and distributes it via Slack, Gmail, and Notion.\n\n**Flow:**\n1. Cron fires at 9:00 AM daily\n2. Fetch metrics from Google Sheets (parallel)\n3. Fetch CRM pipeline data via API (parallel)\n4. Merge both data sources\n5. OpenAI writes the full report\n6. Distribute: Slack channel + Gmail to stakeholders + Notion database\n\n**Setup Required:**\n- Google Sheets credential + Metrics Sheet ID\n- CRM API endpoint + API key\n- OpenAI API key\n- Slack credential + channel\n- Gmail credential + recipient list\n- Notion credential + database ID\n- Adjust cron timezone in trigger node",
+        "height": 400,
+        "width": 400,
+        "color": 5
+      },
+      "id": "sticky-intro",
+      "name": "Intro Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-500, -260]
+    },
+    {
+      "parameters": {
+        "content": "### Fallback Strategy\nIf Google Sheets or CRM fails, the NoOp nodes ensure the Merge still receives data from the working source. The error is flagged in the report itself. Use the Error Trigger for hard failures in OpenAI or distribution.",
+        "height": 180,
+        "width": 340,
+        "color": 4
+      },
+      "id": "sticky-fallback",
+      "name": "Fallback Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [560, -260]
+    },
+    {
+      "parameters": {
+        "content": "### AI Report Sections\nOpenAI generates:\n- `executive_summary` — 2-3 sentence overview\n- `wins` — top 3 positive highlights\n- `risks` — top 3 concerns or blockers\n- `anomalies` — anything statistically unusual\n- `recommended_actions` — prioritized action items for leadership",
+        "height": 200,
+        "width": 340,
+        "color": 7
+      },
+      "id": "sticky-openai",
+      "name": "OpenAI Sections Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [940, -260]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "9 AM Daily (Mon-Fri)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-160, 60]
+    },
+    {
+      "parameters": {
+        "operation": "readRows",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_METRICS_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Daily Metrics",
+          "mode": "list",
+          "cachedResultName": "Daily Metrics"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {
+          "returnFirstMatch": false
+        }
+      },
+      "id": "sheets-metrics",
+      "name": "Google Sheets: Read Metrics",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [80, -80],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-cred",
+          "name": "Google Sheets"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "id": "noop-sheets-fallback",
+      "name": "Sheets Fallback (NoOp)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [80, 80]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://your-crm-api.com/api/v1/pipeline/summary?date={{ new Date().toISOString().split('T')[0] }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "YOUR_CRM_API_KEY"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "crm-data",
+      "name": "HTTP: Fetch CRM Pipeline Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [80, 220],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "id": "noop-crm-fallback",
+      "name": "CRM Fallback (NoOp)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [80, 380]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {
+          "includeUnpaired": true
+        }
+      },
+      "id": "merge-data",
+      "name": "Merge All Data Sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [340, 140]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "r1",
+              "name": "report_date",
+              "value": "={{ new Date().toISOString().split('T')[0] }}",
+              "type": "string"
+            },
+            {
+              "id": "r2",
+              "name": "report_timestamp",
+              "value": "={{ new Date().toISOString() }}",
+              "type": "string"
+            },
+            {
+              "id": "r3",
+              "name": "sheets_data",
+              "value": "={{ JSON.stringify($input.all().map(i => i.json).filter(d => d['Date'] || d['Metric'] || d['Revenue'])) }}",
+              "type": "string"
+            },
+            {
+              "id": "r4",
+              "name": "crm_data",
+              "value": "={{ JSON.stringify($input.all().map(i => i.json).filter(d => d.pipeline || d.deals || d.revenue)) }}",
+              "type": "string"
+            },
+            {
+              "id": "r5",
+              "name": "has_sheets_data",
+              "value": "={{ $input.all().some(i => i.json['Date'] || i.json['Metric'] || i.json['Revenue']) }}",
+              "type": "boolean"
+            },
+            {
+              "id": "r6",
+              "name": "has_crm_data",
+              "value": "={{ $input.all().some(i => i.json.pipeline || i.json.deals) }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-context",
+      "name": "Prepare Report Context",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [580, 140]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4o\",\n  \"temperature\": 0.4,\n  \"response_format\": { \"type\": \"json_object\" },\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an expert business analyst writing a daily executive report. Analyze the provided business metrics and CRM data, then generate a structured JSON report with exactly these fields:\\n\\n- executive_summary (string): A 2-3 sentence high-level overview of business performance today vs. trends\\n- wins (array of strings): Top 3 positive highlights or achievements — be specific with numbers\\n- risks (array of strings): Top 3 concerns, blockers, or declining metrics — be specific\\n- anomalies (array of strings): Any statistically unusual patterns or outliers detected in the data\\n- recommended_actions (array of objects): Each object has: action (string), priority ('high'/'medium'/'low'), owner (string, e.g. 'Sales Team', 'Marketing', 'Leadership'), deadline (string, e.g. 'Today', 'This Week')\\n- data_quality_notes (string): Notes about missing or low-quality data sources\\n- report_confidence (string): 'high', 'medium', or 'low' based on data completeness\\n\\nReturn ONLY valid JSON. Be analytical, concrete, and action-oriented.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Generate today's business report for {{ $json.report_date }}.\\n\\nData Sources Available:\\n- Google Sheets Metrics Available: {{ $json.has_sheets_data }}\\n- CRM Data Available: {{ $json.has_crm_data }}\\n\\nGoogle Sheets Metrics Data:\\n{{ $json.sheets_data }}\\n\\nCRM Pipeline Data:\\n{{ $json.crm_data }}\\n\\nNote: If a data source shows as unavailable, flag it in data_quality_notes and work with what's available.\"\n    }\n  ]\n}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "openai-report",
+      "name": "OpenAI: Generate Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [820, 140],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openai-api-key",
+          "name": "OpenAI API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "p1",
+              "name": "executive_summary",
+              "value": "={{ JSON.parse($json.choices[0].message.content).executive_summary }}",
+              "type": "string"
+            },
+            {
+              "id": "p2",
+              "name": "wins",
+              "value": "={{ JSON.parse($json.choices[0].message.content).wins || [] }}",
+              "type": "array"
+            },
+            {
+              "id": "p3",
+              "name": "risks",
+              "value": "={{ JSON.parse($json.choices[0].message.content).risks || [] }}",
+              "type": "array"
+            },
+            {
+              "id": "p4",
+              "name": "anomalies",
+              "value": "={{ JSON.parse($json.choices[0].message.content).anomalies || [] }}",
+              "type": "array"
+            },
+            {
+              "id": "p5",
+              "name": "recommended_actions",
+              "value": "={{ JSON.parse($json.choices[0].message.content).recommended_actions || [] }}",
+              "type": "array"
+            },
+            {
+              "id": "p6",
+              "name": "data_quality_notes",
+              "value": "={{ JSON.parse($json.choices[0].message.content).data_quality_notes || 'All data sources healthy.' }}",
+              "type": "string"
+            },
+            {
+              "id": "p7",
+              "name": "report_confidence",
+              "value": "={{ JSON.parse($json.choices[0].message.content).report_confidence || 'medium' }}",
+              "type": "string"
+            },
+            {
+              "id": "p8",
+              "name": "report_date",
+              "value": "={{ $('Prepare Report Context').item.json.report_date }}",
+              "type": "string"
+            },
+            {
+              "id": "p9",
+              "name": "report_timestamp",
+              "value": "={{ $('Prepare Report Context').item.json.report_timestamp }}",
+              "type": "string"
+            },
+            {
+              "id": "p10",
+              "name": "slack_formatted_report",
+              "value": "=*Daily Business Report — {{ $('Prepare Report Context').item.json.report_date }}*\n\n:chart_with_upwards_trend: *Executive Summary*\n{{ JSON.parse($json.choices[0].message.content).executive_summary }}\n\n:white_check_mark: *Wins*\n{{ (JSON.parse($json.choices[0].message.content).wins || []).map((w, i) => `${i+1}. ${w}`).join('\\n') }}\n\n:warning: *Risks*\n{{ (JSON.parse($json.choices[0].message.content).risks || []).map((r, i) => `${i+1}. ${r}`).join('\\n') }}\n\n:mag: *Anomalies*\n{{ (JSON.parse($json.choices[0].message.content).anomalies || []).map((a, i) => `${i+1}. ${a}`).join('\\n') }}\n\n:rocket: *Recommended Actions*\n{{ (JSON.parse($json.choices[0].message.content).recommended_actions || []).map((a, i) => `${i+1}. [${a.priority?.toUpperCase()}] ${a.action} — Owner: ${a.owner}, By: ${a.deadline}`).join('\\n') }}\n\n_Report Confidence: {{ JSON.parse($json.choices[0].message.content).report_confidence }} | Generated at {{ $('Prepare Report Context').item.json.report_timestamp }}_",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-report",
+      "name": "Parse & Format Report",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1060, 140]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#daily-reports",
+          "mode": "name"
+        },
+        "text": "={{ $json.slack_formatted_report }}",
+        "otherOptions": {
+          "unfurl_links": false
+        }
+      },
+      "id": "slack-report",
+      "name": "Slack: Post Report",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [1300, -40],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-cred",
+          "name": "Slack"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "sendHtml",
+        "toList": [
+          "ceo@yourcompany.com",
+          "coo@yourcompany.com",
+          "vp-sales@yourcompany.com"
+        ],
+        "subject": "=Daily Business Report — {{ $json.report_date }}",
+        "message": "=<html><body style=\"font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; padding: 20px;\">\n<h1 style=\"color: #1a1a2e;\">Daily Business Report</h1>\n<h3 style=\"color: #666;\">{{ $json.report_date }}</h3>\n\n<div style=\"background: #f8f9fa; border-left: 4px solid #4a90d9; padding: 16px; margin: 20px 0;\">\n  <h2 style=\"margin-top: 0;\">Executive Summary</h2>\n  <p>{{ $json.executive_summary }}</p>\n</div>\n\n<h2 style=\"color: #2ecc71;\">Wins</h2>\n<ul>\n{{ $json.wins.map(w => `<li>${w}</li>`).join('') }}\n</ul>\n\n<h2 style=\"color: #e74c3c;\">Risks</h2>\n<ul>\n{{ $json.risks.map(r => `<li>${r}</li>`).join('') }}\n</ul>\n\n<h2 style=\"color: #f39c12;\">Anomalies</h2>\n<ul>\n{{ $json.anomalies.map(a => `<li>${a}</li>`).join('') }}\n</ul>\n\n<h2 style=\"color: #3498db;\">Recommended Actions</h2>\n<table style=\"width:100%; border-collapse: collapse;\">\n  <tr style=\"background:#eee;\"><th style=\"padding:8px; text-align:left;\">Action</th><th>Priority</th><th>Owner</th><th>By</th></tr>\n  {{ $json.recommended_actions.map(a => `<tr style=\"border-bottom:1px solid #ddd;\"><td style=\"padding:8px;\">${a.action}</td><td style=\"text-align:center;\"><strong>${a.priority}</strong></td><td>${a.owner}</td><td>${a.deadline}</td></tr>`).join('') }}\n</table>\n\n<p style=\"color: #999; font-size: 12px; margin-top: 30px;\">Report Confidence: {{ $json.report_confidence }} | Generated: {{ $json.report_timestamp }} | Data Notes: {{ $json.data_quality_notes }}</p>\n</body></html>",
+        "options": {}
+      },
+      "id": "gmail-report",
+      "name": "Gmail: Email Report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1300, 140],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-cred",
+          "name": "Gmail"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "databasePage",
+        "operation": "create",
+        "databaseId": {
+          "__rl": true,
+          "value": "YOUR_NOTION_DATABASE_ID",
+          "mode": "id"
+        },
+        "title": "=Daily Report — {{ $json.report_date }}",
+        "propertiesUi": {
+          "propertyValues": [
+            {
+              "key": "Date",
+              "type": "date",
+              "date": "={{ $json.report_date }}"
+            },
+            {
+              "key": "Confidence",
+              "type": "select",
+              "selectValue": "={{ $json.report_confidence }}"
+            },
+            {
+              "key": "Status",
+              "type": "select",
+              "selectValue": "Published"
+            }
+          ]
+        },
+        "blockUi": {
+          "blockValues": [
+            {
+              "type": "heading_2",
+              "textContent": "Executive Summary"
+            },
+            {
+              "type": "paragraph",
+              "textContent": "={{ $json.executive_summary }}"
+            },
+            {
+              "type": "heading_2",
+              "textContent": "Wins"
+            },
+            {
+              "type": "bulleted_list_item",
+              "textContent": "={{ $json.wins.join('\\n') }}"
+            },
+            {
+              "type": "heading_2",
+              "textContent": "Risks"
+            },
+            {
+              "type": "bulleted_list_item",
+              "textContent": "={{ $json.risks.join('\\n') }}"
+            },
+            {
+              "type": "heading_2",
+              "textContent": "Anomalies"
+            },
+            {
+              "type": "bulleted_list_item",
+              "textContent": "={{ $json.anomalies.join('\\n') }}"
+            },
+            {
+              "type": "heading_2",
+              "textContent": "Recommended Actions"
+            },
+            {
+              "type": "paragraph",
+              "textContent": "={{ $json.recommended_actions.map(a => `[${a.priority}] ${a.action} — ${a.owner} — Due: ${a.deadline}`).join('\\n') }}"
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "paragraph",
+              "textContent": "={{ 'Data Quality Notes: ' + $json.data_quality_notes }}"
+            }
+          ]
+        }
+      },
+      "id": "notion-save",
+      "name": "Notion: Save Report",
+      "type": "n8n-nodes-base.notion",
+      "typeVersion": 2.2,
+      "position": [1300, 320],
+      "credentials": {
+        "notionApi": {
+          "id": "notion-cred",
+          "name": "Notion"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "error-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [1560, 520]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "post",
+        "channel": {
+          "__rl": true,
+          "value": "#workflow-errors",
+          "mode": "name"
+        },
+        "text": "=:red_circle: *Workflow Error: Daily Business Report Generator*\n\n*Node:* {{ $json.execution.lastNodeExecuted }}\n*Error:* {{ $json.execution.error.message }}\n*Execution ID:* {{ $json.execution.id }}\n*Time:* {{ new Date().toISOString() }}\n\nThe daily report may not have been distributed. Please check the execution log.",
+        "otherOptions": {}
+      },
+      "id": "slack-error",
+      "name": "Slack: Error Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [1800, 520],
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "slack-cred",
+          "name": "Slack"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "9 AM Daily (Mon-Fri)": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets: Read Metrics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP: Fetch CRM Pipeline Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets: Read Metrics": {
+      "main": [
+        [
+          {
+            "node": "Merge All Data Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ],
+      "error": [
+        [
+          {
+            "node": "Sheets Fallback (NoOp)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sheets Fallback (NoOp)": {
+      "main": [
+        [
+          {
+            "node": "Merge All Data Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Fetch CRM Pipeline Data": {
+      "main": [
+        [
+          {
+            "node": "Merge All Data Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ],
+      "error": [
+        [
+          {
+            "node": "CRM Fallback (NoOp)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM Fallback (NoOp)": {
+      "main": [
+        [
+          {
+            "node": "Merge All Data Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge All Data Sources": {
+      "main": [
+        [
+          {
+            "node": "Prepare Report Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Report Context": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: Generate Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: Generate Report": {
+      "main": [
+        [
+          {
+            "node": "Parse & Format Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Format Report": {
+      "main": [
+        [
+          {
+            "node": "Slack: Post Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail: Email Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Notion: Save Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Slack: Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "saveExecutionProgress": true,
+    "saveDataSuccessExecution": "all",
+    "saveDataErrorExecution": "all",
+    "timezone": "America/New_York"
+  },
+  "staticData": null,
+  "tags": ["reporting", "business-intelligence", "openai", "cron", "slack", "gmail", "notion"],
+  "triggerCount": 1,
+  "updatedAt": "2026-05-14T00:00:00.000Z",
+  "versionId": "07-daily-report-v1",
+  "active": false,
+  "id": "workflow-07"
+}
