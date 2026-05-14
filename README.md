@@ -1,191 +1,221 @@
-# AI Workflow Automation Kit for n8n
+<p align="center">
+  <img src="https://img.shields.io/badge/n8n-Workflow%20Automation-FF6D5A?style=for-the-badge&logo=n8n&logoColor=white" alt="n8n" />
+  <img src="https://img.shields.io/badge/OpenAI-GPT--4o-412991?style=for-the-badge&logo=openai&logoColor=white" alt="OpenAI" />
+  <img src="https://img.shields.io/badge/Templates-8%20Workflows-00C853?style=for-the-badge" alt="8 Workflows" />
+</p>
 
-**OpenAI-Powered Business Workflow Templates**
+<h1 align="center">AI Workflow Automation Kit for n8n</h1>
 
-A production-ready library of n8n workflow templates powered by OpenAI for common business operations. Clone, configure, import into n8n, and start automating.
+<p align="center">
+  <strong>Production-ready OpenAI-powered business workflow templates</strong><br/>
+  Clone. Configure. Import. Automate.
+</p>
+
+<p align="center">
+  <a href="https://github.com/humayun-sarfraz/n8n-ai-workflow-kit/stargazers"><img src="https://img.shields.io/github/stars/humayun-sarfraz/n8n-ai-workflow-kit?style=social" alt="Stars" /></a>
+  <a href="https://github.com/humayun-sarfraz/n8n-ai-workflow-kit/blob/main/LICENSE"><img src="https://img.shields.io/github/license/humayun-sarfraz/n8n-ai-workflow-kit?style=flat-square" alt="License" /></a>
+  <a href="https://github.com/humayun-sarfraz/n8n-ai-workflow-kit/issues"><img src="https://img.shields.io/github/issues/humayun-sarfraz/n8n-ai-workflow-kit?style=flat-square" alt="Issues" /></a>
+</p>
+
+---
+
+## Overview
+
+A reusable library of **8 production-ready n8n workflow templates** powered by OpenAI for common business operations. Each workflow includes structured AI prompts, error handling, conditional logic, and integration with popular tools like Gmail, Slack, Google Sheets, Notion, and CRM APIs.
+
+> **No backend required.** Import the JSON templates directly into n8n, configure your credentials, and go.
 
 ---
 
 ## Who This Is For
 
-- Business teams looking to automate repetitive tasks with AI
-- n8n users who want ready-made OpenAI-powered workflows
-- Developers building AI-driven automation pipelines
-- Agencies delivering automation solutions to clients
+| Audience | Use Case |
+|----------|----------|
+| **Business Teams** | Automate repetitive tasks with AI — email triage, lead scoring, reporting |
+| **n8n Users** | Drop-in workflow templates ready to customize |
+| **Developers** | Reference implementations for AI-driven automation pipelines |
+| **Agencies** | White-label automation solutions for clients |
+
+---
 
 ## Workflow Templates
 
-| # | Workflow | File | Key Features |
-|---|---------|------|--------------|
-| 1 | **AI Email Summarizer** | `workflows/01-ai-email-summarizer.json` | Gmail trigger, 3-bullet summary, urgency detection, Slack alerts |
-| 2 | **AI Lead Qualification & Follow-Up** | `workflows/02-ai-lead-qualification-and-follow-up.json` | Lead scoring 0-100, personalized follow-up, human approval |
-| 3 | **Support Ticket Classifier** | `workflows/03-support-ticket-classifier.json` | Category/priority/sentiment classification, routing, retry logic |
-| 4 | **Meeting Notes Generator** | `workflows/04-meeting-notes-generator.json` | Transcript to structured notes, action items, Notion integration |
-| 5 | **Google Sheets CRM Enrichment** | `workflows/05-google-sheets-crm-enrichment.json` | AI-powered record classification, CRM sync, priority alerts |
-| 6 | **Invoice Data Extraction** | `workflows/06-invoice-data-extraction.json` | Structured extraction, line items, human approval for high-value |
-| 7 | **Daily Business Report** | `workflows/07-daily-business-report-generator.json` | Cron-triggered, multi-source data, executive summary |
-| 8 | **Human Approval AI Response** | `workflows/08-human-approval-ai-response.json` | Reusable human-in-the-loop pattern, Slack approval flow |
+| # | Workflow | Description | Key Features |
+|:-:|---------|-------------|:------------:|
+| 1 | **AI Email Summarizer** | Summarize incoming emails with urgency detection | Gmail, Slack, Sheets |
+| 2 | **Lead Qualification & Follow-Up** | Score leads 0-100 and generate personalized follow-ups | Webhook, CRM, Human Approval |
+| 3 | **Support Ticket Classifier** | Classify tickets by category, priority, and sentiment | Webhook, Slack, Notion, Retry Logic |
+| 4 | **Meeting Notes Generator** | Turn transcripts into structured notes and action items | Webhook, Notion, Human Review |
+| 5 | **Google Sheets CRM Enrichment** | Enrich records with AI classification | Sheets Trigger, CRM API |
+| 6 | **Invoice Data Extraction** | Extract structured data from invoice text | Webhook, Human Approval, Validation |
+| 7 | **Daily Business Report** | Generate daily executive summaries from multiple sources | Cron Trigger, Multi-source |
+| 8 | **Human Approval AI Response** | Reusable approve/reject/edit pattern for AI responses | Slack Approval, Gmail |
 
-## Required Tools
+---
 
-- [n8n](https://n8n.io/) (self-hosted or cloud)
-- [OpenAI API key](https://platform.openai.com/api-keys)
-- Optional: Gmail, Google Sheets, Slack, Notion, CRM accounts
+## Tech Stack
+
+<p>
+  <img src="https://img.shields.io/badge/n8n-FF6D5A?style=flat-square&logo=n8n&logoColor=white" alt="n8n" />
+  <img src="https://img.shields.io/badge/OpenAI-412991?style=flat-square&logo=openai&logoColor=white" alt="OpenAI" />
+  <img src="https://img.shields.io/badge/Gmail-EA4335?style=flat-square&logo=gmail&logoColor=white" alt="Gmail" />
+  <img src="https://img.shields.io/badge/Google%20Sheets-34A853?style=flat-square&logo=googlesheets&logoColor=white" alt="Google Sheets" />
+  <img src="https://img.shields.io/badge/Slack-4A154B?style=flat-square&logo=slack&logoColor=white" alt="Slack" />
+  <img src="https://img.shields.io/badge/Notion-000000?style=flat-square&logo=notion&logoColor=white" alt="Notion" />
+  <img src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker" />
+  <img src="https://img.shields.io/badge/Webhooks-FF9800?style=flat-square" alt="Webhooks" />
+</p>
+
+---
 
 ## Quick Start
 
 ### Option 1: Docker (Recommended)
 
 ```bash
-# Clone the repo
 git clone https://github.com/humayun-sarfraz/n8n-ai-workflow-kit.git
 cd n8n-ai-workflow-kit
 
-# Configure environment
 cp .env.example .env
-# Edit .env with your credentials
+# Edit .env with your API keys
 
-# Start n8n
 docker compose up -d
-
-# Open n8n at http://localhost:5678
+# Open http://localhost:5678
 ```
 
 ### Option 2: npm
 
 ```bash
-# Install n8n globally
 npm install -g n8n
-
-# Start n8n
 n8n start
-
-# Open n8n at http://localhost:5678
+# Open http://localhost:5678
 ```
 
-## Configure OpenAI Credentials
+### Import a Workflow
 
 1. Open n8n UI at `http://localhost:5678`
-2. Go to **Settings > Credentials**
-3. Click **Add Credential**
-4. Select **OpenAI API**
-5. Paste your API key
-6. Click **Save**
-
-See [docs/credentials-guide.md](docs/credentials-guide.md) for all credential types.
-
-## Import a Workflow
-
-1. Open n8n UI
-2. Click **Workflows > Import from File**
-3. Select a JSON file from the `workflows/` folder
-4. Assign your credentials to each node that requires them
+2. Go to **Workflows** > **Import from File**
+3. Select any JSON file from the `workflows/` folder
+4. Assign your credentials to each node
 5. Click **Test Workflow** to verify
 6. Toggle **Active** to enable
 
-See [docs/workflow-import-guide.md](docs/workflow-import-guide.md) for detailed steps.
+---
 
-## Testing Workflows
-
-### Webhook-based workflows
-
-Use `curl` to send test payloads:
+## Testing with Webhooks
 
 ```bash
-# Test Lead Qualification
+# Lead Qualification
 curl -X POST http://localhost:5678/webhook/lead-qualification \
   -H "Content-Type: application/json" \
   -d @examples/webhook-payloads/lead-submission.json
 
-# Test Support Ticket Classifier
+# Support Ticket Classifier
 curl -X POST http://localhost:5678/webhook/support-ticket \
   -H "Content-Type: application/json" \
   -d @examples/webhook-payloads/support-ticket.json
 
-# Test Meeting Notes
+# Meeting Notes
 curl -X POST http://localhost:5678/webhook/meeting-notes \
   -H "Content-Type: application/json" \
   -d @examples/webhook-payloads/meeting-transcript.json
 
-# Test Invoice Extraction
+# Invoice Extraction
 curl -X POST http://localhost:5678/webhook/invoice-extraction \
   -H "Content-Type: application/json" \
   -d @examples/webhook-payloads/invoice-text.json
 ```
 
-### Trigger-based workflows
-
-- **Email Summarizer**: Send a test email to the connected Gmail account
-- **CRM Enrichment**: Add a new row to the connected Google Sheet
-- **Daily Report**: Manually execute or wait for the 9 AM cron trigger
-
-See [docs/webhook-examples.md](docs/webhook-examples.md) for full payload examples.
+---
 
 ## Project Structure
 
 ```
 n8n-ai-workflow-kit/
-  README.md
-  .env.example
-  docker-compose.yml
-  workflows/           # 8 ready-to-import n8n workflow JSON templates
-  docs/                # Setup, credentials, security, troubleshooting guides
-  examples/
-    webhook-payloads/  # Sample JSON payloads for testing webhooks
-    sample-outputs/    # Example AI-generated outputs
-  prompts/             # Reusable OpenAI prompt templates
+├── workflows/              # 8 ready-to-import n8n workflow JSON templates
+├── docs/                   # Setup, credentials, security, troubleshooting
+├── prompts/                # Reusable OpenAI prompt templates
+├── examples/
+│   ├── webhook-payloads/   # Sample JSON payloads for testing
+│   └── sample-outputs/     # Example AI-generated outputs
+├── .env.example            # Environment variable template
+├── docker-compose.yml      # Local n8n setup
+└── LICENSE
 ```
+
+---
 
 ## Documentation
 
 | Document | Description |
-|----------|-------------|
+|:---------|:------------|
 | [Setup Guide](docs/setup-guide.md) | Install and configure n8n locally |
-| [Credentials Guide](docs/credentials-guide.md) | Configure all API credentials |
-| [Workflow Import Guide](docs/workflow-import-guide.md) | Step-by-step import instructions |
-| [Webhook Examples](docs/webhook-examples.md) | Webhook URLs, payloads, and curl commands |
+| [Credentials Guide](docs/credentials-guide.md) | Configure OpenAI, Gmail, Slack, Notion, CRM credentials |
+| [Workflow Import Guide](docs/workflow-import-guide.md) | Step-by-step import and activation |
+| [Webhook Examples](docs/webhook-examples.md) | URLs, payloads, and curl commands |
 | [Prompt Library](docs/prompt-library.md) | Reusable AI prompts for all workflows |
 | [Error Handling Patterns](docs/error-handling-patterns.md) | Retry logic, error alerts, validation |
-| [Security Best Practices](docs/security-best-practices.md) | API key safety, data sanitization |
-| [Troubleshooting](docs/troubleshooting.md) | Common issues and solutions |
+| [Security Best Practices](docs/security-best-practices.md) | API key safety, PII, data sanitization |
+| [Troubleshooting](docs/troubleshooting.md) | Common issues and fixes |
 
-## Security Notes
+---
+
+## Security
 
 - **Never hardcode API keys** — use n8n's built-in credential system
-- **Use webhook authentication** — enable Basic Auth or Header Auth on webhook nodes
-- **Sanitize inputs** — validate and clean webhook data before processing
+- **Authenticate webhooks** — enable Basic Auth or Header Auth
+- **Sanitize inputs** — validate and clean all incoming data
 - **Limit PII sent to OpenAI** — strip unnecessary personal data
-- **Human approval** — use approval workflows for customer-facing AI responses
-- **Rotate credentials** regularly
+- **Human approval** — required for all customer-facing AI responses
+- **Rotate credentials** on a regular schedule
 
-See [docs/security-best-practices.md](docs/security-best-practices.md) for details.
+---
 
 ## Customization
 
-Each workflow is designed to be adapted:
+| What | How |
+|------|-----|
+| **AI Model** | Change `gpt-4o` to `gpt-4o-mini` or any model in OpenAI nodes |
+| **Prompts** | Edit system/user messages in nodes or use `prompts/` templates |
+| **Integrations** | Swap Slack for Teams, Gmail for Outlook, Sheets for Airtable |
+| **Thresholds** | Adjust lead score cutoffs, invoice limits, urgency rules |
+| **Nodes** | Add processing, storage, or notification steps to any workflow |
 
-- **Change the AI model**: Update the model parameter in OpenAI nodes (e.g., `gpt-4o`, `gpt-4o-mini`)
-- **Modify prompts**: Edit the system/user messages in OpenAI nodes or reference `prompts/` files
-- **Swap integrations**: Replace Slack with Teams, Gmail with Outlook, Google Sheets with Airtable
-- **Add nodes**: Extend workflows with additional processing, storage, or notification steps
-- **Adjust thresholds**: Change lead score cutoffs, invoice amount thresholds, urgency rules
+---
 
 ## Troubleshooting
 
 | Issue | Solution |
-|-------|----------|
+|:------|:---------|
 | OpenAI credential error | Verify API key in n8n credentials, check billing status |
-| Gmail trigger not firing | Ensure OAuth2 is configured, check Gmail API is enabled |
-| Webhook not receiving data | Use n8n test mode first, check URL matches exactly |
-| JSON parse error from AI | Add error handling branch, validate AI output format |
+| Gmail trigger not firing | Ensure OAuth2 is configured, Gmail API enabled in GCP |
+| Webhook not receiving data | Use test mode first, verify URL matches exactly |
+| JSON parse error from AI | Add error handling branch, validate output format |
 | Rate limit (429) errors | Enable retry logic on OpenAI nodes, add delay between calls |
 
 See [docs/troubleshooting.md](docs/troubleshooting.md) for the full guide.
 
-## License
+---
 
-MIT License. Use these templates freely in personal and commercial projects.
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request.
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/new-workflow`)
+3. Commit your changes
+4. Push to the branch (`git push origin feature/new-workflow`)
+5. Open a Pull Request
 
 ---
 
-Built for the n8n community. Contributions welcome.
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+---
+
+<p align="center">
+  <strong>Built for the n8n community</strong><br/>
+  <sub>If this project helps you, consider giving it a star!</sub>
+</p>
