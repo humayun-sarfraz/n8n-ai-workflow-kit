@@ -37,9 +37,11 @@ You will be given a set of daily business metrics and operational data. Analyze 
     - urgency: "immediate", "today", or "this_week".
 
 Return only valid JSON. Do not include explanation or commentary outside the JSON object.
+```
 
 ## Output Schema
 
+```json
 {
   "executive_summary": "<string>",
   "wins": [
@@ -72,7 +74,11 @@ Return only valid JSON. Do not include explanation or commentary outside the JSO
     }
   ]
 }
+```
 
+## Business Data Template
+
+```
 ## Business Data for Today ({{report_date}})
 
 ### Revenue Metrics

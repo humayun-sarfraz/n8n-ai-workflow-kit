@@ -4,6 +4,8 @@
   "customer_email": "marcus.webb@brightwave.io",
   "subject": "API integration completely broken after your last update - urgent",
   "message": "Hi Support Team,\n\nI am writing because our entire integration between your platform and our internal CRM stopped working as of yesterday morning, May 13th. This is causing a serious disruption to our operations.\n\nHere is what we are seeing:\n- All API calls to the /v2/sync endpoint are returning HTTP 502 errors.\n- The error body is: {\"error\": \"upstream_timeout\", \"code\": 5022}.\n- This started happening around 09:15 AM EST, which lines up exactly with when your platform showed a maintenance window in your status page.\n- We have not changed anything on our end. Our API key is valid and our authentication tokens are refreshing correctly.\n\nWe process roughly 4,000 customer records per day through this sync, and right now all of that is failing silently. We only caught it because our data team noticed a discrepancy in our dashboards. We have no idea how much data has been lost or is out of sync.\n\nWe are a paying Pro plan customer (Account: BWV-9921) and this level of reliability is simply not acceptable. If this is not resolved within the next few hours, we will need to escalate to your leadership team and evaluate our contract options.\n\nPlease treat this as critical. I need an engineer to look at this immediately, not a canned response.\n\nMarcus Webb\nHead of Engineering, BrightWave Inc.",
+  "customer_plan": "Pro",
+  "channel": "email",
   "timestamp": "2024-05-14T07:42:11Z",
   "account_id": "BWV-9921"
 }

@@ -65,7 +65,7 @@ The `{your-path}` is set in the Webhook node's **Path** field. It must be unique
 
 ## Workflow 1: Lead Submission Webhook
 
-**Workflow file:** `workflows/lead-capture-ai-qualifier.json`
+**Workflow file:** `workflows/02-ai-lead-qualification-and-follow-up.json`
 **Webhook path:** `lead-submission`
 **Method:** POST
 
@@ -221,7 +221,7 @@ curl -X POST http://localhost:5678/webhook/meeting-transcript \
 
 ## Workflow 4: Invoice Text Webhook
 
-**Workflow file:** `workflows/invoice-extractor.json`
+**Workflow file:** `workflows/06-invoice-data-extraction.json`
 **Webhook path:** `invoice-extract`
 **Method:** POST
 

@@ -427,7 +427,7 @@
       "credentials": {
         "gmailOAuth2": {
           "id": "gmail-cred",
-          "name": "Slack"
+          "name": "Gmail"
         }
       }
     },

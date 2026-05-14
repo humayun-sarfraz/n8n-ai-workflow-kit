@@ -192,10 +192,10 @@ Focus on decisions made, action items assigned, and key discussion points. Be co
 ```
 Generate structured meeting notes from the following transcript:
 
-Meeting: {{$json.title}}
-Date: {{$json.date}}
-Duration: {{$json.duration_minutes}} minutes
-Attendees: {{$json.attendees.join(", ")}}
+Meeting: {{$json.meeting_title}}
+Date: {{$json.meeting_date}}
+Duration: {{$json.duration}} minutes
+Participants: {{ $json.participants.join(', ') }}
 
 Transcript:
 {{$json.transcript}}
@@ -261,7 +261,7 @@ If a field is not present in the invoice, set it to null. Do not guess values. A
 ```
 Extract all structured data from the following invoice text:
 
-{{$json.raw_text}}
+{{$json.invoice_text}}
 
 Return a complete JSON object with all invoice fields.
 ```

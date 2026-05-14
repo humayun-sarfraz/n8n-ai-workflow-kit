@@ -28,7 +28,6 @@ In the left sidebar, click **Workflows**.
 
 You will see a list of all existing workflows (empty if this is a fresh install).
 
-> **Screenshot placeholder:** _Workflows list page showing the sidebar navigation and workflow cards._
 
 ---
 
@@ -38,7 +37,6 @@ Click the **+** button (top right) or the **New** button to reveal workflow crea
 
 Select **Import from File** from the dropdown or menu.
 
-> **Screenshot placeholder:** _Import from File option highlighted in the new workflow dropdown menu._
 
 Alternatively, from inside an open workflow editor, click the **...** menu (top right of the editor canvas) and select **Import from File**.
 
@@ -53,18 +51,20 @@ Navigate to the `workflows/` directory of this repository on your local machine.
 Select the JSON file for the workflow you want to import, for example:
 
 ```
-workflows/lead-capture-ai-qualifier.json
-workflows/support-ticket-classifier.json
-workflows/meeting-notes-generator.json
-workflows/invoice-extractor.json
-workflows/daily-business-digest.json
+workflows/01-ai-email-summarizer.json
+workflows/02-ai-lead-qualification-and-follow-up.json
+workflows/03-support-ticket-classifier.json
+workflows/04-meeting-notes-generator.json
+workflows/05-google-sheets-crm-enrichment.json
+workflows/06-invoice-data-extraction.json
+workflows/07-daily-business-report-generator.json
+workflows/08-human-approval-ai-response.json
 ```
 
 Click **Open** (or **Import**).
 
 The workflow opens immediately in the canvas editor.
 
-> **Screenshot placeholder:** _Workflow canvas showing imported nodes with warning badges on credential-required nodes._
 
 ---
 
@@ -163,7 +163,6 @@ After running a test:
 3. Green nodes = success, Red nodes = error
 4. Click a red node to read the error message
 
-> **Screenshot placeholder:** _Execution log panel showing node-by-node data with one highlighted error node and its error message._
 
 Fix any errors — usually:
 - Wrong credential assigned

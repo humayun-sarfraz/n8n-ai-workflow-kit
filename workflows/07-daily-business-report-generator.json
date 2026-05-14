@@ -110,7 +110,7 @@
           "parameters": [
             {
               "name": "X-API-Key",
-              "value": "YOUR_CRM_API_KEY"
+              "value": "={{ $env.CRM_API_KEY }}"
             },
             {
               "name": "Accept",
